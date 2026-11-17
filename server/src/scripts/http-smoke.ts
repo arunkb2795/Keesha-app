@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { createClerkClient } from '@clerk/backend';
 import { eq } from 'drizzle-orm';
+import { accountToday, expenseMonthBounds } from '../../../src/domain/expenses.js';
 import { connectDatabase } from '../db/client.js';
 import { appUsers } from '../db/schema.js';
 import { serverConfig } from '../env.js';
@@ -18,7 +19,7 @@ async function main() {
   if (!config.CLERK_SECRET_KEY.startsWith('sk_test_')) throw new Error('A Clerk development instance is required.');
   const clerk = createClerkClient({ secretKey: config.CLERK_SECRET_KEY });
   const suffix = randomUUID();
-  const apiUrl = 'http://127.0.0.1:' + config.PORT;
+  const apiUrl = process.env.KEESHA_SMOKE_API_URL?.replace(/\/+$/, '') ?? 'http://127.0.0.1:' + config.PORT;
   const createdUsers: string[] = [];
   const { db, close } = connectDatabase();
 
@@ -43,8 +44,10 @@ async function main() {
 
     const expenseId = randomUUID();
     const mutationId = randomUUID();
+    const expenseDate = accountToday();
+    const { start, end } = expenseMonthBounds(expenseDate);
     const body = JSON.stringify({ operations: [{ mutationId, operation: 'create', expense: {
-      id: expenseId, title: 'Synthetic expense', amountPaise: 1234, categoryId: 'food', expenseDate: '2024-02-29',
+      id: expenseId, title: 'Synthetic expense', amountPaise: 1234, categoryId: 'food', expenseDate,
     } }] });
     const save = () => fetch(apiUrl + '/v1/sync/mutations', {
       method: 'POST', headers: { ...a, 'Content-Type': 'application/json' }, body,
@@ -60,9 +63,12 @@ async function main() {
     assert.deepEqual(await (await save()).json(), result);
     console.log('HTTP smoke: authenticated create and same-ID retry succeeded (200).');
 
-    const owned = await fetch(apiUrl + '/v1/expenses?categoryId=food', { headers: a });
+    const owned = await fetch(`${apiUrl}/v1/expenses?limit=5&start=${start}&end=${end}`, { headers: a });
     await expectStatus(owned, 200, 'Owner history');
     assert.deepEqual((await owned.json()).expenses.map((row: { id: string }) => row.id), [expenseId]);
+    const summary = await fetch(`${apiUrl}/v1/expenses/monthly-summary?month=${start}`, { headers: a });
+    await expectStatus(summary, 200, 'Owner monthly summary');
+    assert.equal((await summary.json()).totalPaise, '1234');
 
     const other = await fetch(apiUrl + '/v1/expenses', { headers: b });
     await expectStatus(other, 200, 'Second account history');
@@ -87,7 +93,7 @@ main().catch(error => {
   const status = typeof error?.status === 'number' ? ' Provider status ' + error.status + '.' : '';
   const codes = Array.isArray(error?.errors) ? error.errors.map((item: { code?: string }) => item.code).filter(Boolean) : [];
   const detail = codes.length ? ' Codes: ' + codes.join(', ') + '.' : '';
-  const safeMessage = /^(?:Unauthenticated history|Expense creation|Owner history|Second account|Synthetic user cleanup)/;
+  const safeMessage = /^(?:Unauthenticated history|Expense creation|Owner history|Owner monthly summary|Second account|Synthetic user cleanup)/;
   const message = safeMessage.test(error?.message ?? '') ? ' ' + error.message : '';
   console.error('HTTP expense smoke failed.' + message + status + detail);
   process.exitCode = 1;

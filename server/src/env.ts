@@ -15,7 +15,7 @@ const databaseUrlSchema = z.url({ protocol: /^postgres(?:ql)?$/ }).refine(value 
 });
 
 export function databaseUrl() {
-  const result = databaseUrlSchema.safeParse(process.env.DATABASE_URL);
+  const result = databaseUrlSchema.safeParse(process.env.KEESHA_DATABASE_URL ?? process.env.DATABASE_URL);
   if (!result.success) throw new Error('Invalid or missing server DATABASE_URL.');
   return result.data;
 }

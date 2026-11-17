@@ -20,12 +20,11 @@ export const maxExpenseTextLength = 200;
 export const accountTimezone = 'Asia/Kolkata';
 
 const monthName = new Intl.DateTimeFormat('en-US', { month: 'long' });
-const ordinal = new Intl.PluralRules('en-US', { type: 'ordinal' });
-const ordinalSuffix: Partial<Record<Intl.LDMLPluralRule, string>> = { one: 'st', two: 'nd', few: 'rd' };
+const ordinalSuffixes = ['th', 'st', 'nd', 'rd'] as const;
 
 export function formatExpenseDate(date: Date) {
   const day = date.getDate();
-  const suffix = ordinalSuffix[ordinal.select(day)] ?? 'th';
+  const suffix = day >= 11 && day <= 13 ? 'th' : (ordinalSuffixes[day % 10] ?? 'th');
   return `${monthName.format(date)} ${day}${suffix}, ${date.getFullYear()}`;
 }
 
@@ -102,11 +101,13 @@ export function groupExpenses<T extends { expenseDate: string }>(expenses: reado
   return [...groups].map(([key, group]) => ({ key, ...group }));
 }
 
-const rupees = new Intl.NumberFormat('en-IN');
+function formatIndianInteger(value: bigint) {
+  return value.toString().replace(/\d(?=(?:\d{2})+\d$)/g, '$&,');
+}
 
 export function formatPaise(value: string | number) {
   const paise = BigInt(value);
-  return '₹' + rupees.format(paise / 100n) + '.' + String(paise % 100n).padStart(2, '0');
+  return '₹' + formatIndianInteger(paise / 100n) + '.' + String(paise % 100n).padStart(2, '0');
 }
 
 export function compareMonthlySpend(currentPaise: string, previousPaise: string) {
@@ -119,7 +120,7 @@ export function compareMonthlySpend(currentPaise: string, previousPaise: string)
   const magnitude = above ? difference : -difference;
   if (difference > previous) return { label: `${formatPaise(difference.toString())} more than last month`, above };
   const percentage = (magnitude * 100n + previous / 2n) / previous;
-  const formatted = percentage === 0n ? '<1' : rupees.format(percentage);
+  const formatted = percentage === 0n ? '<1' : formatIndianInteger(percentage);
   return { label: `${formatted}% ${above ? 'above' : 'below'} last month`, above };
 }
 

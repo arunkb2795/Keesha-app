@@ -26,6 +26,12 @@ With the local API running and a Clerk development key configured, `npm run db:s
 
 From the project root, `npm run build` typechecks the API and Expo app and exports the Expo web build. The app uses the authenticated API when there is a connection.
 
+## Android preview builds
+
+The `expenses` Neon Function is declared in the root `neon.ts`. Deploy it with `neon deploy --env <server-env-file> --no-env-pull` using a gitignored file containing the Clerk and cursor settings above and `KEESHA_DATABASE_URL` set to the restricted, pooled database connection. Use the function's HTTPS invocation URL as `EXPO_PUBLIC_API_URL` on the Expo project's `preview` environment. Build a new APK after changing that variable so Expo includes it in the app bundle.
+
+Set `KEESHA_SMOKE_API_URL` when running `db:smoke-http` to test the deployed endpoint instead of the local server.
+
 ## Expense endpoints
 
 All endpoints require a Clerk session bearer token.

@@ -2,7 +2,7 @@
   "expo": {
     "name": "keesha",
     "slug": "keesha",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "keesha",
@@ -12,7 +12,7 @@
     },
     "android": {
       "package": "com.keesha.app",
-      "versionCode": 1,
+      "versionCode": 3,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
