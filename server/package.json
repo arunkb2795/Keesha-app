@@ -1,0 +1,34 @@
+{
+  "name": "keesha-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.15"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:smoke": "tsx src/scripts/db-smoke.ts",
+    "db:smoke-http": "tsx src/scripts/http-smoke.ts"
+  },
+  "dependencies": {
+    "@clerk/backend": "3.30.0",
+    "@hono/node-server": "2.1.8",
+    "@neondatabase/serverless": "1.2.1",
+    "dotenv": "18.0.10",
+    "drizzle-orm": "1.0.0-rc.5",
+    "hono": "4.13.19",
+    "tsx": "4.23.15",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.16",
+    "@types/node": "22.20.5",
+    "drizzle-kit": "1.0.0-rc.5",
+    "typescript": "7.0.2"
+  }
+}

@@ -1,56 +1,88 @@
-# Welcome to your Expo app 👋
+# Keesha
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Expo SDK 58 app with Clerk sign-in and sign-up screens. Email verification, password
+recovery, and Google OAuth are part of the authentication flow. Signed-in users can
+open Home, History, and Settings through the bottom navigation. Spending and
+transactions use sample data for the UI preview.
 
-## Get started
+## Run and configure Clerk
 
-1. Install dependencies
+1. Run `npm ci` (Node 24+ also runs the focused TypeScript tests without another test framework).
+2. Create or select a Clerk development application. Configure:
+   - Email address + password sign-up/sign-in; require email verification by code.
+   - Email-based password recovery and device verification.
+   - Google as the only social connection; enable sign-ups.
+   - No required username, first/last name, phone, organization selection, or other
+     session tasks. Unsupported account requirements are blocked safely in the app.
+   - Enable the Native API for native clients. Keep Clerk's applicable bot protection;
+     the web registration screen provides the CAPTCHA mount point.
+3. Copy `.env.example` to `.env.local` and set your real
+   `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` from Clerk's API Keys page. Restart Metro.
+   Missing/malformed keys show a setup screen; authentication hooks never run outside
+   a configured provider. A key alone cannot enable Google if its connection is disabled.
+4. Enable the Google connection in Clerk. For production, configure the Google OAuth
+   credentials and consent screen as instructed by Clerk. Put any Google client secret
+   in Clerk's dashboard only, never in Expo public configuration.
+5. Register the native redirect URL `keesha://sso-callback` in Clerk's allowed redirect
+   URLs. The app uses its existing `keesha` scheme with Expo AuthSession and Clerk's
+   browser OAuth helper; it does not use the native Google SDK.
+6. For web, allow your actual development/production origin and its
+   `/sso-callback` URL. Example when using port 8082:
+   `http://localhost:8082/sso-callback`. Keep the same hostname and port throughout
+   the flow. Clerk/Expo WebBrowser completes the popup callback; cancellation returns
+   to the original form. Do not bypass browser popup or origin protections.
+7. Start with `npx expo start --web --port 8082`. A blocked/unreachable Clerk service
+   cannot authenticate users. Check connection and provider configuration when testing.
 
-   ```bash
-   npm install
-   ```
+Never place a Clerk secret key, Google client secret, or Neon database URL in the app
+bundle. Clerk's supported token cache uses SecureStore on native and its web session
+mechanism on web. Passwords and codes exist only in transient form state; they are
+never placed in navigation parameters, logs, AsyncStorage, or application databases.
 
-2. Start the app
+## Native builds
 
-   ```bash
-   npx expo start
-   ```
+Before creating a development or production build, the owner must choose the final
+Android package and iOS bundle identifier, register those apps in Clerk, and verify
+the native redirect allowlist. Build through EAS using `npx eas-cli@latest build`
+with an appropriate development profile and credentials. Native generated directories
+must not be hand-edited.
 
-In the output, you'll find options to open the app in a
+Test browser OAuth in Android and iOS development builds. Expo Go and a successful
+JavaScript bundle do not prove that signed native deep-link return works.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+## Architecture
 
-You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+- Expo Router protects the sign-in, sign-up, and home routes using Clerk state.
+  Home access requires an active session, no pending session tasks, and a
+  verified primary email. Root routing and session loss follow the same access policy.
+- `src/lib/auth.ts` contains validation, curated errors, and auth-flow orchestration.
+  Clerk's current email/password resources and its compatible experimental SSO helper
+  are used together; no legacy resource/session activation calls are mixed in.
+- Google supports both new and existing Clerk users. Identity linking is managed by
+  Clerk; the app never merges users by comparing email addresses.
+- Password recovery opens within sign-in. Settings shows the signed-in profile,
+  the appearance toggle, and sign-out.
+- Shared fields, buttons, verification form, auth shell, and theme avoid duplicated
+  layout/state frameworks. All backend authorization remains future work: client
+  navigation protection is not an API security boundary.
 
-## Get a fresh project
+## Checks
 
-When you're ready, run:
-
-```bash
-npm run reset-project
+```sh
+npm test
+npx expo lint
+npx tsc --noEmit
 ```
 
-This command will move the starter code to the **example** directory and create a blank **src/app** directory where you can start developing.
+Focused tests cover registration verification, incorrect/expired codes, device
+verification, safe errors, resend timing, duplicate requests, recovery requests,
+OAuth cancellation, and session access/sign-out transitions.
 
-### Other setup steps
+Live QA requires a real Clerk development instance: register and verify email,
+test wrong/expired codes and resend, sign in/out, recover a password, use Google
+with new/existing accounts, cancel OAuth, reload sessions, and open protected deep
+links while signed out. Verify both themes, keyboard behavior, screen readers, and
+Google return on native devices. Do not use production credentials or real financial data
+for testing. Without a real configured development key these live checks remain unverified.
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Full product requirements and future Neon/Drizzle backend architecture are in `SPEC.md`.

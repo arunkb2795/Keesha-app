@@ -1,0 +1,122 @@
+import { createHash } from 'node:crypto';
+import { and, eq, gte, isNull, lt, sql } from 'drizzle-orm';
+import type { PgAsyncDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import { accountToday } from '../../../src/domain/expenses.js';
+import { appUsers, categories, expenses, mutationReceipts, syncChanges } from './schema.js';
+import { expenseSchema, type CreateOperation, type ExpenseCursor, type HistoryQuery, type Profile } from '../validation.js';
+
+export class ExpenseError extends Error {
+  constructor(
+    readonly status: 400 | 401 | 403 | 404 | 409,
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+const expenseFields = {
+  id: expenses.id,
+  title: expenses.title,
+  amountPaise: expenses.amountPaise,
+  categoryId: expenses.categoryId,
+  expenseDate: expenses.expenseDate,
+  note: expenses.note,
+  version: expenses.version,
+};
+
+export function expenseStore<T extends PgQueryResultHKT>(db: PgAsyncDatabase<T>) {
+  async function accountFor(clerkUserId: string) {
+    const [account] = await db.select({ id: appUsers.id, status: appUsers.status }).from(appUsers)
+      .where(eq(appUsers.clerkUserId, clerkUserId));
+    if (account && account.status !== 'active') {
+      throw new ExpenseError(403, 'ACCOUNT_UNAVAILABLE', 'This account is unavailable.');
+    }
+    return account?.id;
+  }
+
+  async function provision(profile: Profile) {
+    // Drizzle's insert builder names defaulted columns too. Keep this write limited to profile fields.
+    await db.execute(sql`insert into ${appUsers} (clerk_user_id, name, email)
+      values (${profile.clerkUserId}, ${profile.name ?? null}, ${profile.email}) on conflict (clerk_user_id) do nothing`);
+    const ownerId = await accountFor(profile.clerkUserId);
+    if (!ownerId) throw new ExpenseError(403, 'ACCOUNT_UNAVAILABLE', 'This account is unavailable.');
+    return ownerId;
+  }
+
+  async function create(ownerId: string, operation: CreateOperation) {
+    const input = operation.expense;
+    const normalized = {
+      id: input.id,
+      title: input.title,
+      note: input.note || null,
+      amountPaise: input.amountPaise,
+      categoryId: input.categoryId,
+      expenseDate: input.expenseDate ?? null,
+    };
+    const hash = createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
+
+    return db.transaction(async tx => {
+      // Serialize writes for this owner so receipts and sync revisions follow commit order.
+      const [owner] = await tx.select({ status: appUsers.status, revision: appUsers.syncRevision }).from(appUsers)
+        .where(eq(appUsers.id, ownerId)).for('update');
+      if (owner?.status !== 'active') {
+        throw new ExpenseError(403, 'ACCOUNT_UNAVAILABLE', 'This account is unavailable.');
+      }
+
+      const [receipt] = await tx.select({ hash: mutationReceipts.requestHash, result: mutationReceipts.result })
+        .from(mutationReceipts).where(and(eq(mutationReceipts.ownerId, ownerId),
+          eq(mutationReceipts.mutationId, operation.mutationId)));
+      if (receipt) {
+        if (receipt.hash !== hash) throw new ExpenseError(409, 'MUTATION_CONFLICT', 'This save ID was already used.');
+        return expenseSchema.parse(receipt.result);
+      }
+
+      const today = accountToday();
+      const expenseDate = normalized.expenseDate ?? today;
+      if (expenseDate > today) throw new ExpenseError(400, 'FUTURE_DATE', 'Choose today or an earlier date.');
+
+      const [record] = await tx.insert(expenses).values({ ...normalized, ownerId, expenseDate })
+        .onConflictDoNothing({ target: expenses.id }).returning(expenseFields);
+      if (!record) throw new ExpenseError(409, 'EXPENSE_CONFLICT', 'This expense ID was already used.');
+
+      const result = expenseSchema.parse(record);
+      const revision = owner.revision + 1n;
+      await tx.update(appUsers).set({ syncRevision: revision }).where(eq(appUsers.id, ownerId));
+      await tx.insert(syncChanges).values({ ownerId, revision, entityType: 'expense', entityId: result.id, version: result.version });
+      await tx.insert(mutationReceipts).values({ ownerId, mutationId: operation.mutationId, requestHash: hash, result });
+      return result;
+    });
+  }
+
+  async function list(ownerId: string, query: HistoryQuery, cursor?: ExpenseCursor) {
+    return db.select({ ...expenseFields, categoryName: categories.name }).from(expenses)
+      .innerJoin(categories, eq(expenses.categoryId, categories.id))
+      .where(and(
+        eq(expenses.ownerId, ownerId),
+        isNull(expenses.deletedAt),
+        query.start ? gte(expenses.expenseDate, query.start) : undefined,
+        query.end ? lt(expenses.expenseDate, query.end) : undefined,
+        query.categoryId ? eq(expenses.categoryId, query.categoryId) : undefined,
+        cursor ? sql`(${expenses.expenseDate}, ${expenses.id}) < (${cursor.date}::date, ${cursor.id}::uuid)` : undefined,
+      ))
+      .orderBy(sql`${expenses.expenseDate} desc nulls last`, sql`${expenses.id} desc nulls last`)
+      .limit(query.limit + 1);
+  }
+
+  async function get(ownerId: string, id: string) {
+    const [record] = await db.select(expenseFields).from(expenses)
+      .where(and(eq(expenses.ownerId, ownerId), eq(expenses.id, id), isNull(expenses.deletedAt)));
+    return record;
+  }
+
+  function categoryTotalsForRange(ownerId: string, start: string, end: string) {
+    return db.select({
+      categoryId: expenses.categoryId,
+      amountPaise: sql<string>`sum(${expenses.amountPaise})::text`,
+    }).from(expenses).where(and(eq(expenses.ownerId, ownerId), isNull(expenses.deletedAt),
+      gte(expenses.expenseDate, start), lt(expenses.expenseDate, end))).groupBy(expenses.categoryId);
+  }
+
+  return { accountFor, provision, create, list, get, categoryTotalsForRange };
+}
