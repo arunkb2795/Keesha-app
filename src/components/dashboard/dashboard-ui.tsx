@@ -5,6 +5,7 @@ import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
+import { BackButton } from '@/components/ui/back-button';
 import { Radii, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -32,6 +33,27 @@ const symbols = {
   down: { ios: 'chevron.down', android: 'keyboard_arrow_down', web: 'keyboard_arrow_down' },
   previous: { ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' },
   next: { ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' },
+  fitness: { ios: 'dumbbell', android: 'fitness_center', web: 'fitness_center' },
+  gift: { ios: 'gift', android: 'redeem', web: 'redeem' },
+  work: { ios: 'briefcase', android: 'work', web: 'work' },
+  pet: { ios: 'pawprint', android: 'pets', web: 'pets' },
+  coffee: { ios: 'cup.and.saucer', android: 'local_cafe', web: 'local_cafe' },
+  car: { ios: 'car', android: 'directions_car', web: 'directions_car' },
+  bicycle: { ios: 'bicycle', android: 'pedal_bike', web: 'pedal_bike' },
+  fuel: { ios: 'fuelpump', android: 'local_gas_station', web: 'local_gas_station' },
+  parking: { ios: 'parkingsign', android: 'local_parking', web: 'local_parking' },
+  bank: { ios: 'building.columns', android: 'account_balance', web: 'account_balance' },
+  savings: { ios: 'banknote', android: 'savings', web: 'savings' },
+  phone: { ios: 'iphone', android: 'smartphone', web: 'smartphone' },
+  internet: { ios: 'wifi', android: 'wifi', web: 'wifi' },
+  music: { ios: 'music.note', android: 'music_note', web: 'music_note' },
+  game: { ios: 'gamecontroller', android: 'sports_esports', web: 'sports_esports' },
+  beauty: { ios: 'scissors', android: 'content_cut', web: 'content_cut' },
+  clothing: { ios: 'tshirt', android: 'checkroom', web: 'checkroom' },
+  baby: { ios: 'figure.child', android: 'child_care', web: 'child_care' },
+  plants: { ios: 'leaf', android: 'potted_plant', web: 'potted_plant' },
+  tools: { ios: 'wrench.and.screwdriver', android: 'construction', web: 'construction' },
+  check: { ios: 'checkmark', android: 'check', web: 'check' },
 } as const satisfies Record<string, SymbolViewProps['name']>;
 
 export type DashboardIconName = keyof typeof symbols;
@@ -47,7 +69,8 @@ export function DashboardScreen({ children, header }: PropsWithChildren<{ header
   const bottomPadding = Math.max(insets.bottom, Spacing.three) + dashboardTabHeight + 2 * Spacing.one + 2 + Spacing.four;
 
   const content = (
-    <ScrollView style={{ flex: 1, backgroundColor: colors.background }} contentInsetAdjustmentBehavior={header ? 'never' : 'automatic'}
+    <ScrollView style={{ flex: 1, backgroundColor: colors.background }} keyboardShouldPersistTaps="handled"
+      automaticallyAdjustKeyboardInsets contentInsetAdjustmentBehavior={header ? 'never' : 'automatic'}
       contentContainerStyle={[styles.scroll, { paddingBottom: bottomPadding },
         header ? styles.scrollBelowHeader : Platform.OS === 'android' && { paddingTop: insets.top + Spacing.four }]}>
       <View style={styles.content}>{children}</View>
@@ -65,11 +88,14 @@ export function DashboardScreen({ children, header }: PropsWithChildren<{ header
   );
 }
 
-export function DashboardHeading({ title, subtitle }: { title: string; subtitle: string }) {
+export function DashboardHeading({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <View style={styles.heading}>
-      <ThemedText type="title" accessibilityRole="header">{title}</ThemedText>
-      <ThemedText themeColor="textSecondary">{subtitle}</ThemedText>
+    <View style={styles.headingRow}>
+      <BackButton fallback="/home" />
+      <View style={styles.heading}>
+        <ThemedText type="title" accessibilityRole="header">{title}</ThemedText>
+        {subtitle && <ThemedText themeColor="textSecondary">{subtitle}</ThemedText>}
+      </View>
     </View>
   );
 }
@@ -105,7 +131,8 @@ const styles = StyleSheet.create({
   scrollBelowHeader: { paddingTop: Spacing.two },
   fixedHeader: { alignItems: 'center', paddingHorizontal: Spacing.three, paddingBottom: Spacing.three },
   content: { width: '100%', maxWidth: 480, gap: Spacing.four },
-  heading: { gap: Spacing.one },
+  headingRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
+  heading: { flex: 1, minWidth: 0, gap: Spacing.one },
   empty: { alignItems: 'center', gap: Spacing.two, padding: Spacing.four, borderRadius: Radii.large, borderWidth: 1 },
   emptyIcon: { width: 56, height: 56, borderRadius: Radii.pill, alignItems: 'center', justifyContent: 'center',
     marginBottom: Spacing.one },

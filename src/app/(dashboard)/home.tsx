@@ -9,10 +9,12 @@ import { ExpensePeriodPicker } from '@/components/dashboard/expense-period-picke
 import { SpendingCard, SpendingCategories, TransactionList, TransactionSkeleton } from '@/components/dashboard/spending-preview';
 import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/button';
+import { CreateCategorySheet } from '@/components/categories/create-category-sheet';
 import { Radii, Spacing } from '@/constants/theme';
 import { accountToday, expenseMonthBounds, shiftExpenseDay, type ExpensePeriod } from '@/domain/expenses';
 import { useTheme } from '@/hooks/use-theme';
 import { getExpenseSummary, listExpenses, type HistoryEntry } from '@/lib/expenses-api';
+import { useCategories } from '@/providers/categories-provider';
 
 type HomeData = {
   periodKey: string;
@@ -27,6 +29,9 @@ export default function HomeScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const { openExpense, expenseRevision } = useExpenseActions();
+  const catalog = useCategories();
+  const [creatingCategory, setCreatingCategory] = useState(false);
+  const [createdCategoryId, setCreatedCategoryId] = useState<string>();
   const today = accountToday();
   const currentMonth = expenseMonthBounds(today).start;
   const [selection, setSelection] = useState<ExpensePeriod>();
@@ -80,7 +85,19 @@ export default function HomeScreen() {
       <SpendingCard label={kind === 'day' ? 'Daily spend' : isCurrentMonth ? 'This month’s spend' : 'Monthly spend'}
         totalPaise={data?.summary.totalPaise} previousMonthTotalPaise={data?.summary.previousMonthTotalPaise}
         loadingPeriod={loading ? kind : undefined} />
-      <SpendingCategories totals={totals} onSelect={openExpense} loading={loading} />
+      <SpendingCategories categories={catalog.categories} totals={totals} onSelect={openExpense}
+        loading={loading || catalog.loading} onAdd={() => setCreatingCategory(true)} addDisabled={catalog.loading || !!catalog.error}
+        revealCategoryId={createdCategoryId} />
+      {catalog.error && <View style={{ gap: Spacing.two }}>
+        <ThemedText type="small" accessibilityLiveRegion="polite">{catalog.error}</ThemedText>
+        <Button label="Retry categories" variant="secondary" onPress={catalog.reload} />
+      </View>}
+      {creatingCategory && <CreateCategorySheet categories={catalog.categories} onCreate={async input => {
+        const category = await catalog.create(input);
+        setCreatedCategoryId(category.id);
+        return category;
+      }}
+        onClose={() => setCreatingCategory(false)} />}
 
       <View style={styles.recent}>
         <View style={styles.recentHeader}>

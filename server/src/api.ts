@@ -5,7 +5,7 @@ import { cors } from 'hono/cors';
 import { accountToday, expenseMonthBounds, shiftExpenseDay, type Expense } from '../../src/domain/expenses.js';
 import { ExpenseError, type expenseStore } from './db/expenses.js';
 import {
-  calendarDateSchema, createBatchSchema, cursorPayloadSchema, expenseSchema, historyQuerySchema, profileSchema, uuid,
+  calendarDateSchema, createBatchSchema, cursorPayloadSchema, expenseSchema, historyQuerySchema, newCategorySchema, profileSchema, uuid,
   type ExpenseCursor, type HistoryQuery,
 } from './validation.js';
 
@@ -63,6 +63,30 @@ export function createApi({ store, authenticate, loadProfile, cursorSecret, webO
     await next();
   });
 
+  async function ensureOwner(clerkUserId: string) {
+    const existing = await store.accountFor(clerkUserId);
+    if (existing) return existing;
+    const profile = profileSchema.safeParse(await loadProfile(clerkUserId));
+    if (!profile.success || profile.data.clerkUserId !== clerkUserId) {
+      throw new ExpenseError(403, 'PROFILE_UNAVAILABLE', 'A verified email address is required.');
+    }
+    return store.provision(profile.data);
+  }
+
+  app.get('/v1/categories', async c => {
+    const owner = await store.accountFor(c.get('clerkUserId'));
+    return c.json({ categories: await store.listCategories(owner) });
+  });
+
+  app.post('/v1/categories', bodyLimit({ maxSize: 2048,
+    onError: c => c.json({ code: 'PAYLOAD_TOO_LARGE', message: 'This request is too large.' }, 413),
+  }), async c => {
+    const input = newCategorySchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!input.success) throw new ExpenseError(400, 'INVALID_CATEGORY', 'Enter a category name of 1–12 characters and choose an icon.');
+    const owner = await ensureOwner(c.get('clerkUserId'));
+    return c.json({ category: await store.createCategory(owner, input.data) }, 201);
+  });
+
   app.post('/v1/sync/mutations', bodyLimit({
     maxSize: 96 * 1024,
     onError: c => c.json({
@@ -73,15 +97,7 @@ export function createApi({ store, authenticate, loadProfile, cursorSecret, webO
     const parsed = createBatchSchema.safeParse(body);
     if (!parsed.success) throw new ExpenseError(400, 'INVALID_EXPENSE', 'Check the expense details and try again.');
 
-    const clerkUserId = c.get('clerkUserId');
-    let ownerId = await store.accountFor(clerkUserId);
-    if (!ownerId) {
-      const profile = profileSchema.safeParse(await loadProfile(clerkUserId));
-      if (!profile.success || profile.data.clerkUserId !== clerkUserId) {
-        throw new ExpenseError(403, 'PROFILE_UNAVAILABLE', 'A verified email address is required.');
-      }
-      ownerId = await store.provision(profile.data);
-    }
+    const ownerId = await ensureOwner(c.get('clerkUserId'));
 
     const results: ({ mutationId: string; expense: Expense } |
       { mutationId: string; error: ReturnType<typeof publicError> })[] = [];
@@ -109,11 +125,13 @@ export function createApi({ store, authenticate, loadProfile, cursorSecret, webO
     if (!owner) return c.json({ expenses: [], nextCursor: null });
 
     const rows = await store.list(owner, query, cursor);
-    const items = rows.slice(0, query.limit).map(({ categoryName, ...item }) => ({ ...expenseSchema.parse(item), categoryName }));
+    const items = rows.slice(0, query.limit).map(({ categoryName, categoryIcon, createdAt, ...item }) => ({
+      ...expenseSchema.parse(item), categoryName, categoryIcon, createdAt,
+    }));
     const last = items.at(-1);
     let nextCursor: string | null = null;
     if (last && rows.length > query.limit) {
-      const payload = Buffer.from(JSON.stringify({ date: last.expenseDate, id: last.id })).toString('base64url');
+      const payload = Buffer.from(JSON.stringify({ date: last.expenseDate, createdAt: last.createdAt, id: last.id })).toString('base64url');
       nextCursor = payload + '.' + cursorSignature(cursorSecret, owner, query, payload);
     }
     return c.json({ expenses: items, nextCursor });

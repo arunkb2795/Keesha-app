@@ -8,7 +8,7 @@ export function AuthRequired() {
   const { signOut } = useClerk();
   const action = useAuthAction();
   return (
-    <StatusScreen title="One more account step"
+    <StatusScreen showBack title="One more account step"
       message="Your account needs an additional verification or setup step that Keesha cannot complete yet. Start over or contact the app owner.">
       <AuthMessage message={action.issue?.message} />
       <Button label="Sign out and start over" loading={action.pending} onPress={() => void action.run(() => signOut())} />

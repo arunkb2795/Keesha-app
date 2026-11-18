@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
-import { and, eq, gte, isNull, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, isNull, lt, or, sql } from 'drizzle-orm';
 import type { PgAsyncDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import { accountToday } from '../../../src/domain/expenses.js';
 import { appUsers, categories, expenses, mutationReceipts, syncChanges } from './schema.js';
-import { expenseSchema, type CreateOperation, type ExpenseCursor, type HistoryQuery, type Profile } from '../validation.js';
+import { expenseSchema, type CreateOperation, type ExpenseCursor, type HistoryQuery, type NewCategory, type Profile } from '../validation.js';
 
 export class ExpenseError extends Error {
   constructor(
@@ -26,6 +26,36 @@ const expenseFields = {
 };
 
 export function expenseStore<T extends PgQueryResultHKT>(db: PgAsyncDatabase<T>) {
+  const categoryFields = { id: categories.id, name: categories.name, icon: categories.icon,
+    isDefault: sql<boolean>`${categories.ownerId} is null` };
+  function listCategories(ownerId?: string) {
+    return db.select(categoryFields).from(categories)
+      .where(or(isNull(categories.ownerId), ownerId ? eq(categories.ownerId, ownerId) : undefined))
+      .orderBy(sql`${categories.ownerId} is null desc`, categories.createdAt, categories.id);
+  }
+
+  async function createCategory(ownerId: string, input: NewCategory) {
+    return db.transaction(async tx => {
+      const [owner] = await tx.select({ status: appUsers.status }).from(appUsers)
+        .where(eq(appUsers.id, ownerId)).for('update');
+      if (owner?.status !== 'active') throw new ExpenseError(403, 'ACCOUNT_UNAVAILABLE', 'This account is unavailable.');
+      const [existing] = await tx.select({ ...categoryFields, ownerId: categories.ownerId }).from(categories)
+        .where(or(eq(categories.id, input.id), and(
+          or(isNull(categories.ownerId), eq(categories.ownerId, ownerId)),
+          sql`lower(btrim(${categories.name})) = lower(${input.name})`,
+        )));
+      if (existing) {
+        if (existing.id === input.id && existing.ownerId === ownerId && existing.name === input.name && existing.icon === input.icon) {
+          const { ownerId: _ownerId, ...category } = existing;
+          return category;
+        }
+        throw new ExpenseError(409, 'CATEGORY_EXISTS', 'A category with this name already exists. Choose another name.');
+      }
+      const [category] = await tx.insert(categories).values({ ...input, ownerId }).onConflictDoNothing().returning(categoryFields);
+      if (!category) throw new ExpenseError(409, 'CATEGORY_EXISTS', 'This category could not be created. Choose another name.');
+      return category;
+    });
+  }
   async function accountFor(clerkUserId: string) {
     const [account] = await db.select({ id: appUsers.id, status: appUsers.status }).from(appUsers)
       .where(eq(appUsers.clerkUserId, clerkUserId));
@@ -72,6 +102,11 @@ export function expenseStore<T extends PgQueryResultHKT>(db: PgAsyncDatabase<T>)
         return expenseSchema.parse(receipt.result);
       }
 
+      const [category] = await tx.select({ id: categories.id }).from(categories).where(and(
+        eq(categories.id, normalized.categoryId), or(isNull(categories.ownerId), eq(categories.ownerId, ownerId)),
+      ));
+      if (!category) throw new ExpenseError(400, 'INVALID_CATEGORY', 'Choose one of your available categories.');
+
       const today = accountToday();
       const expenseDate = normalized.expenseDate ?? today;
       if (expenseDate > today) throw new ExpenseError(400, 'FUTURE_DATE', 'Choose today or an earlier date.');
@@ -90,7 +125,10 @@ export function expenseStore<T extends PgQueryResultHKT>(db: PgAsyncDatabase<T>)
   }
 
   async function list(ownerId: string, query: HistoryQuery, cursor?: ExpenseCursor) {
-    return db.select({ ...expenseFields, categoryName: categories.name }).from(expenses)
+    return db.select({ ...expenseFields, categoryName: categories.name, categoryIcon: categories.icon,
+      // Preserve Postgres microseconds so a pagination cursor never rounds past a row.
+      createdAt: sql<string>`to_char(${expenses.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+    }).from(expenses)
       .innerJoin(categories, eq(expenses.categoryId, categories.id))
       .where(and(
         eq(expenses.ownerId, ownerId),
@@ -98,9 +136,10 @@ export function expenseStore<T extends PgQueryResultHKT>(db: PgAsyncDatabase<T>)
         query.start ? gte(expenses.expenseDate, query.start) : undefined,
         query.end ? lt(expenses.expenseDate, query.end) : undefined,
         query.categoryId ? eq(expenses.categoryId, query.categoryId) : undefined,
-        cursor ? sql`(${expenses.expenseDate}, ${expenses.id}) < (${cursor.date}::date, ${cursor.id}::uuid)` : undefined,
+        cursor ? sql`(${expenses.expenseDate}, ${expenses.createdAt}, ${expenses.id}) <
+          (${cursor.date}::date, ${cursor.createdAt}::timestamptz, ${cursor.id}::uuid)` : undefined,
       ))
-      .orderBy(sql`${expenses.expenseDate} desc nulls last`, sql`${expenses.id} desc nulls last`)
+      .orderBy(sql`${expenses.expenseDate} desc nulls last`, sql`${expenses.createdAt} desc`, sql`${expenses.id} desc nulls last`)
       .limit(query.limit + 1);
   }
 
@@ -115,8 +154,9 @@ export function expenseStore<T extends PgQueryResultHKT>(db: PgAsyncDatabase<T>)
       categoryId: expenses.categoryId,
       amountPaise: sql<string>`sum(${expenses.amountPaise})::text`,
     }).from(expenses).where(and(eq(expenses.ownerId, ownerId), isNull(expenses.deletedAt),
-      gte(expenses.expenseDate, start), lt(expenses.expenseDate, end))).groupBy(expenses.categoryId);
+      gte(expenses.expenseDate, start), lt(expenses.expenseDate, end))).groupBy(expenses.categoryId)
+      .orderBy(sql`max(${expenses.createdAt}) desc`, expenses.categoryId);
   }
 
-  return { accountFor, provision, create, list, get, categoryTotalsForRange };
+  return { accountFor, provision, create, list, get, categoryTotalsForRange, listCategories, createCategory };
 }

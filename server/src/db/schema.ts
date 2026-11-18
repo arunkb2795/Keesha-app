@@ -1,8 +1,8 @@
 import { sql } from 'drizzle-orm';
 import {
-  bigint, check, date, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp, uuid,
+  bigint, check, date, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid,
 } from 'drizzle-orm/pg-core';
-import { maxExpensePaise, maxExpenseTextLength, type CategoryId, type Expense } from '../../../src/domain/expenses.js';
+import { categoryIconIds, maxExpensePaise, maxExpenseTextLength, type CategoryIcon, type CategoryId, type Expense } from '../../../src/domain/expenses.js';
 
 const timestampUtc = (name: string) => timestamp(name, { withTimezone: true }).notNull().defaultNow();
 
@@ -19,10 +19,25 @@ export const appUsers = pgTable('app_users', {
   updatedAt: timestampUtc('updated_at'),
 });
 
-export const categories = pgTable('categories', {
+// Retained as a migration source for installations with existing expenses.
+export const legacyCategories = pgTable('categories', {
   id: text().$type<CategoryId>().primaryKey(),
   name: text().notNull(),
 });
+
+export const categories = pgTable('expense_categories', {
+  id: text().$type<CategoryId>().primaryKey(),
+  ownerId: uuid('owner_id').references(() => appUsers.id, { onDelete: 'cascade' }),
+  name: text().notNull(),
+  icon: text().$type<CategoryIcon>().notNull(),
+  createdAt: timestampUtc('created_at'),
+}, table => [
+  check('expense_categories_name_length', sql`char_length(btrim(${table.name})) between 1 and
+    case when ${table.ownerId} is null then 200 else 12 end`),
+  check('expense_categories_icon', sql`${table.icon} in (${sql.join(categoryIconIds.map(icon => sql.raw(`'${icon}'`)), sql`, `)})`),
+  uniqueIndex('expense_categories_owner_name_idx').on(table.ownerId, sql`lower(btrim(${table.name}))`)
+    .where(sql`${table.ownerId} is not null`),
+]);
 
 export const expenses = pgTable('expenses', {
   id: uuid().primaryKey(),

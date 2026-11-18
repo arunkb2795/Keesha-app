@@ -12,6 +12,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Radii, Spacing } from '@/constants/theme';
 import { type CategoryId } from '@/domain/expenses';
 import { useTheme } from '@/hooks/use-theme';
+import { CategoriesProvider } from '@/providers/categories-provider';
 
 const tabs = [
   { name: 'home', title: 'Home', href: '/home' },
@@ -21,7 +22,7 @@ const tabs = [
 
 export default function DashboardLayout() {
   const { userId } = useAuth();
-  return userId ? <DashboardTabs key={userId} /> : null;
+  return userId ? <CategoriesProvider key={userId}><DashboardTabs /></CategoriesProvider> : null;
 }
 
 function DashboardTabs() {

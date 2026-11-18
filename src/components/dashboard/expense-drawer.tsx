@@ -6,12 +6,13 @@ import { Animated, Keyboard, KeyboardAvoidingView, Modal, PanResponder, Platform
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ExpenseDate } from './expense-date';
-import { CategoryCard } from './spending-preview';
+import { CategoryCard } from '@/components/categories/category-card';
 import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/button';
 import { TextField } from '@/components/ui/text-field';
 import { Radii, Spacing } from '@/constants/theme';
-import { accountToday, categoryIds, categoryNames, expenseDateKey, parseExpensePaise, type CategoryId } from '@/domain/expenses';
+import { accountToday, expenseDateKey, parseExpensePaise, type CategoryId } from '@/domain/expenses';
+import { useCategories } from '@/providers/categories-provider';
 import { useTheme } from '@/hooks/use-theme';
 import { ExpenseApiError, saveExpense } from '@/lib/expenses-api';
 
@@ -25,6 +26,8 @@ export function ExpenseDrawer({ category, categoryAmountPaise, onSaved, onClose 
 }) {
   const { getToken } = useAuth();
   const { colors } = useTheme();
+  const { categories } = useCategories();
+  const selectedCategory = categories.find(item => item.id === category);
   const { height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [translateY] = useState(() => new Animated.Value(height));
@@ -113,7 +116,7 @@ export function ExpenseDrawer({ category, categoryAmountPaise, onSaved, onClose 
           </View>
           <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
             <View style={styles.intro}>
-              {category && <CategoryCard category={category} amountPaise={categoryAmountPaise} />}
+              {selectedCategory && <CategoryCard category={selectedCategory} amountPaise={categoryAmountPaise} />}
               <View style={styles.introCopy}>
                 <ThemedText accessibilityRole="header" style={styles.heading}>Enter your expense</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
@@ -136,12 +139,12 @@ export function ExpenseDrawer({ category, categoryAmountPaise, onSaved, onClose 
             {!category && <>
               <ThemedText type="smallBold">Category</ThemedText>
               <View style={styles.categories}>
-                {categoryIds.map(id => (
-                  <Pressable key={id} accessibilityRole="button" accessibilityState={{ selected: id === categoryId }}
-                    disabled={saving} onPress={() => setCategoryId(id)}
-                    style={[styles.category, { borderColor: id === categoryId ? colors.accent : colors.border,
-                      backgroundColor: id === categoryId ? colors.accentSoft : colors.backgroundElement }]}>
-                    <ThemedText type="small">{categoryNames[id]}</ThemedText>
+                {categories.map(item => (
+                  <Pressable key={item.id} accessibilityRole="button" accessibilityState={{ selected: item.id === categoryId }}
+                    disabled={saving} onPress={() => setCategoryId(item.id)}
+                    style={[styles.category, { borderColor: item.id === categoryId ? colors.accent : colors.border,
+                      backgroundColor: item.id === categoryId ? colors.accentSoft : colors.backgroundElement }]}>
+                    <ThemedText type="small">{item.name}</ThemedText>
                   </Pressable>
                 ))}
               </View>

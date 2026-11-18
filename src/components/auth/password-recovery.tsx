@@ -48,7 +48,7 @@ export function PasswordRecovery({ initialEmail, onCancel }: { initialEmail: str
     });
   }
   return (
-    <AuthShell title={step === 'complete' ? 'Password updated.' : 'Reset your password'}
+    <AuthShell busy={action.pending} title={step === 'complete' ? 'Password updated.' : 'Reset your password'}
       description={step === 'complete' ? 'Your new password is ready. Continue to your account.' : 'Recover access to your Keesha account.'}>
       {step === 'email' ? <>
         <TextField label="Email address" placeholder="you@example.com" keyboardType="email-address"

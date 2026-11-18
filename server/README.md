@@ -36,11 +36,18 @@ Set `KEESHA_SMOKE_API_URL` when running `db:smoke-http` to test the deployed end
 
 All endpoints require a Clerk session bearer token.
 
+- `GET /v1/categories` returns the shared defaults and the authenticated account's custom categories.
+- `POST /v1/categories` accepts `{ "id": "<UUID>", "name": "Pets", "icon": "pet" }`. Custom names are trimmed, limited to 12 characters, and unique without regard to case within the account or against defaults. The server validates icons against the shared icon catalog. Retry with the same ID and payload after a connection failure.
+
 - `POST /v1/sync/mutations` accepts a batch of up to 50 create operations. For example, send `{"operations":[{"mutationId":"16d45cc9-dff1-40d8-9919-d64c14644a11","operation":"create","expense":{"id":"5dca8d67-8d67-4d61-baa8-6d7cceea9d9c","title":"Tea","amountPaise":1250}}]}`. The server defaults to Other and today's Asia/Kolkata date. A successful result includes the mutation ID and saved expense. Use the same mutation ID and payload when retrying.
-- `GET /v1/expenses` returns owned expenses and a continuation cursor. Optional filters include `start` (inclusive), `end` (exclusive), and `categoryId`. The page limit defaults to 30 and caps at 100. Pass the same filters with the cursor to read the next page.
+- `GET /v1/expenses` returns owned expenses, newest expense date first, then newest creation time within each date, with the ID breaking exact timestamp ties. Each item includes its UTC `createdAt` timestamp. The signed continuation cursor preserves timestamp microseconds. Optional filters include `start` (inclusive), `end` (exclusive), and `categoryId`. The page limit defaults to 30 and caps at 100. Pass the same filters with the cursor to read the next page. Cursors from the earlier ID-only ordering must be refreshed.
 - `GET /v1/expenses/:id` returns an owned, active expense or 404.
 - `GET /v1/expenses/monthly-summary` defaults to the current Asia/Kolkata calendar month. Pass `month=YYYY-MM-01` for an earlier month. The response includes the selected and preceding month totals and selected-month category totals.
 - `GET /v1/expenses/daily-summary?date=YYYY-MM-DD` returns the owner's total and category totals for one day. Summary amounts are decimal strings in paise so aggregates retain integer precision.
+
+Daily and monthly category totals are ordered by the most recently created active expense in each category within the selected period. The app displays these categories first, followed by unused categories in their usual order.
+
+The `expense_categories` table holds all active category definitions, with `owner_id IS NULL` for shared defaults. The category migration copies the original default catalog without changing IDs, preserves existing expense references, and carries forward the existing application's read/insert access. The original `categories` table remains only as a migration source. Custom categories can only be listed or used by their owner.
 
 New expenses require a title and can include an optional note. The API stores the name, when available, and verified primary email from Clerk when it creates the corresponding application user. Ownership always uses the Clerk user ID mapping. Dates use PostgreSQL `date`. Individual expenses are bounded at 999,999,999 integer paise, which the API can represent exactly with a JavaScript number. Future aggregate queries should retain PostgreSQL's exact sum as a bigint or decimal string.
 

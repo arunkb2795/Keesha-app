@@ -1,10 +1,12 @@
-import { Platform, Pressable, ScrollView, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, View, type ScrollViewInstance, type StyleProp, type ViewStyle } from 'react-native';
+import { useRef } from 'react';
 
 import { DashboardIcon } from './dashboard-ui';
+import { CategoryCard } from '@/components/categories/category-card';
 import { ThemedText } from '@/components/themed-text';
 import { Radii, Spacing } from '@/constants/theme';
-import { accountToday, categoryIds, categoryNames, compareMonthlySpend, formatPaise, groupExpenses,
-  type CategoryId, type ExpensePeriod } from '@/domain/expenses';
+import { accountToday, categoryIds, compareMonthlySpend, defaultCategories, formatPaise, groupExpenses, isCategoryIcon,
+  type CategoryId, type ExpenseCategory, type ExpensePeriod } from '@/domain/expenses';
 import { useTheme } from '@/hooks/use-theme';
 import { type HistoryEntry } from '@/lib/expenses-api';
 
@@ -46,16 +48,40 @@ export function SpendingCard({ label, totalPaise, previousMonthTotalPaise, loadi
   );
 }
 
-export function SpendingCategories({ totals, onSelect, loading = false }: {
+export function SpendingCategories({ totals, onSelect, loading = false, categories = defaultCategories, onAdd,
+  addDisabled = false, revealCategoryId }: {
   totals?: ReadonlyMap<CategoryId, string>;
   onSelect: (category: CategoryId, amountPaise?: string) => void;
   loading?: boolean;
+  categories?: readonly ExpenseCategory[];
+  onAdd?: () => void;
+  addDisabled?: boolean;
+  revealCategoryId?: CategoryId;
 }) {
   const { colors } = useTheme();
+  const scroll = useRef<ScrollViewInstance>(null);
+  const revealedCategory = useRef<CategoryId | undefined>(undefined);
+  const catalog = new Map(categories.map(category => [category.id, category]));
+  const recentCategories = totals ? [...totals.keys()].flatMap(id => catalog.has(id) ? [catalog.get(id)!] : []) : [];
+  const orderedCategories = [...recentCategories, ...categories.filter(category => !totals?.has(category.id))];
   return (
     <View style={styles.section}>
-      <ThemedText accessibilityRole="header" style={styles.sectionTitle}>Categories</ThemedText>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}
+      <View style={styles.sectionHeader}>
+        <ThemedText accessibilityRole="header" style={styles.sectionTitle}>Categories</ThemedText>
+        {onAdd && <Pressable accessibilityRole="button" accessibilityLabel="Add new category"
+          disabled={addDisabled} accessibilityState={{ disabled: addDisabled }} onPress={onAdd}
+          style={({ pressed }) => [styles.addCategory, { opacity: addDisabled ? 0.5 : pressed ? 0.7 : 1 }]}>
+          <DashboardIcon name="add" size={17} color={colors.accent} />
+          <ThemedText type="smallBold" themeColor="accent">Add New</ThemedText>
+        </Pressable>}
+      </View>
+      <ScrollView ref={scroll} horizontal showsHorizontalScrollIndicator={false}
+        onContentSizeChange={() => {
+          if (revealCategoryId && revealedCategory.current !== revealCategoryId && catalog.has(revealCategoryId)) {
+            revealedCategory.current = revealCategoryId;
+            scroll.current?.scrollToEnd({ animated: true });
+          }
+        }}
         accessible={loading || undefined} accessibilityRole={loading ? 'progressbar' : undefined}
         accessibilityLabel={loading ? 'Loading category totals' : 'Spending categories'}
         tabIndex={Platform.OS === 'web' && !loading ? 0 : undefined} scrollEnabled={!loading}
@@ -68,13 +94,14 @@ export function SpendingCategories({ totals, onSelect, loading = false }: {
             </View>
             <View style={styles.categoryLabelSkeletonFrame}><SkeletonBlock style={styles.categoryLabelSkeleton} /></View>
           </View>
-        )) : categoryIds.map(id => {
+        )) : orderedCategories.map(category => {
+          const id = category.id;
           const amount = totals ? totals.get(id) ?? '0' : undefined;
           return (
             <Pressable key={id} accessibilityRole="button"
-              accessibilityLabel={`Add expense in ${categoryNames[id]}${amount === undefined ? '' : `, ${formatPaise(amount)} spent`}`}
+              accessibilityLabel={`Add expense in ${category.name}${amount === undefined ? '' : `, ${formatPaise(amount)} spent`}`}
               onPress={() => onSelect(id, amount)} style={({ pressed }) => pressed && styles.pressed}>
-              <CategoryCard category={id} amountPaise={amount} />
+              <CategoryCard category={category} amountPaise={amount} />
             </Pressable>
           );
         })}
@@ -83,31 +110,13 @@ export function SpendingCategories({ totals, onSelect, loading = false }: {
   );
 }
 
-export function CategoryCard({ category, amountPaise }: { category: CategoryId; amountPaise?: string }) {
+export function TransactionSkeleton({ count = 2, label = 'Loading recent transactions' }: { count?: number; label?: string }) {
   const { colors } = useTheme();
   return (
-    <View style={styles.category}>
-      <View style={[styles.categoryCard, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
-        <View style={styles.categoryIcon}><DashboardIcon name={category} size={24} color={colors.accent} /></View>
-        {amountPaise !== undefined && (
-          <View style={[styles.categoryAmount, { backgroundColor: colors.accentSoft }]}>
-            <ThemedText themeColor="accent" type="smallBold" numberOfLines={1} adjustsFontSizeToFit>
-              {formatPaise(amountPaise)}
-            </ThemedText>
-          </View>
-        )}
-      </View>
-      <ThemedText type="small" themeColor="textSecondary" style={styles.categoryLabel}>{categoryNames[category]}</ThemedText>
-    </View>
-  );
-}
-
-export function TransactionSkeleton() {
-  const { colors } = useTheme();
-  return (
-    <View accessible accessibilityRole="progressbar" accessibilityLabel="Loading recent transactions" style={styles.transactionGroup}>
+    <View accessible accessibilityRole="progressbar" accessibilityLabel={label}
+      accessibilityState={{ busy: true }} style={styles.transactionGroup}>
       <View style={styles.transactionHeadingSkeletonFrame}><SkeletonBlock style={styles.transactionHeadingSkeleton} /></View>
-      {['first', 'second'].map(row => (
+      {Array.from({ length: count }, (_, row) => (
         <View key={row} style={[styles.transaction, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
           <SkeletonBlock style={styles.transactionIcon} />
           <View style={[styles.transactionCopy, styles.transactionCopySkeleton]}>
@@ -131,7 +140,8 @@ export function TransactionList({ transactions }: { transactions: readonly Histo
         {group.expenses.map(transaction => (
           <View key={transaction.id} style={[styles.transaction, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
             <View style={[styles.transactionIcon, { backgroundColor: colors.accentSoft }]}>
-              <DashboardIcon name={transaction.categoryId} color={colors.accent} />
+              <DashboardIcon name={transaction.categoryIcon ?? (isCategoryIcon(transaction.categoryId) ? transaction.categoryId : 'other')}
+                color={colors.accent} />
             </View>
             <View style={styles.transactionCopy}>
               <ThemedText type="smallBold">{transaction.title ?? transaction.categoryName}</ThemedText>
@@ -161,6 +171,8 @@ const styles = StyleSheet.create({
   comparisonSkeleton: { width: 168, maxWidth: '100%', height: 29, borderRadius: Radii.pill },
   section: { gap: Spacing.two },
   sectionTitle: { fontSize: 18, lineHeight: 25, fontWeight: '600' },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.two },
+  addCategory: { minHeight: 44, flexDirection: 'row', gap: Spacing.one, alignItems: 'center', paddingHorizontal: Spacing.one },
   categories: { gap: 10 },
   category: { width: 94, gap: Spacing.one },
   pressed: { opacity: 0.7 },

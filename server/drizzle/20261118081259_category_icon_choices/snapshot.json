@@ -1,0 +1,38 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "e50d1f3c-bd2f-45f8-8804-b4e19883172f",
+  "prevIds": [
+    "d53ad552-bdb1-479e-b1a1-fdcb1fa13ab7"
+  ],
+  "footprints": [
+    {
+      "statementType": "alter_check",
+      "statementTarget": [
+        "table",
+        "public",
+        "expense_categories"
+      ],
+      "writes": [
+        "s|ck|public.expense_categories.expense_categories_icon"
+      ],
+      "reads": [
+        "n|tbl|public.expense_categories",
+        "n|sch|public",
+        "n|col|public.expense_categories.icon",
+        "e|col|public.expense_categories.icon"
+      ],
+      "sqlHash": "9af3048a6f598f46"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"expense_categories\",\"expense_categories_icon\"]",
+      "set": {
+        "value": "\"icon\" in ('food', 'grocery', 'transport', 'shopping', 'bills', 'medical', 'entertainment', 'travel', 'education', 'other', 'home', 'person', 'fitness', 'gift', 'work', 'pet', 'coffee', 'car', 'bicycle', 'fuel', 'parking', 'bank', 'savings', 'phone', 'internet', 'music', 'game', 'beauty', 'clothing', 'baby', 'plants', 'tools')"
+      }
+    }
+  ]
+}

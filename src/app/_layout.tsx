@@ -1,3 +1,4 @@
+import '@/global.css';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SessionLoading } from '@/components/auth/session-loading';

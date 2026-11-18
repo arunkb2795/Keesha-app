@@ -7,3 +7,18 @@
   --font-rounded: 'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif;
   --font-serif: Georgia, 'Times New Roman', serif;
 }
+
+[data-testid='category-icon-picker'] {
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+
+[data-testid='category-icon-picker']::-webkit-scrollbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-testid='category-icon-picker'] {
+    scroll-behavior: auto;
+  }
+}

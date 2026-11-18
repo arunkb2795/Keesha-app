@@ -2,11 +2,12 @@ import { type ReactNode } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { BackButton } from '@/components/ui/back-button';
 import { AuthContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
-export function StatusScreen({ title, message, loading = false, children }: {
-  title: string; message: string; loading?: boolean; children?: ReactNode;
+export function StatusScreen({ title, message, loading = false, showBack = false, children }: {
+  title: string; message: string; loading?: boolean; showBack?: boolean; children?: ReactNode;
 }) {
   const { colors } = useTheme();
   return (
@@ -17,6 +18,7 @@ export function StatusScreen({ title, message, loading = false, children }: {
           <ThemedText type="brand" themeColor="accent">keesha</ThemedText>
           <ThemeToggle />
         </View>
+        {showBack && <BackButton />}
         {loading ? <ActivityIndicator color={colors.accent} size="large" accessibilityLabel="Loading account" /> : null}
         <ThemedText type="title" accessibilityRole="header">{title}</ThemedText>
         <ThemedText themeColor="textSecondary">{message}</ThemedText>

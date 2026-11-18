@@ -5,7 +5,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { accountToday, categoryNames, compareMonthlySpend, expenseWeekDates, expenseMonthBounds, formatExpenseDate,
+import { accountToday, categoryIconIds, categoryNames, compareMonthlySpend, expenseWeekDates, expenseMonthBounds, formatExpenseDate,
   formatPaise, groupExpenses, parseExpensePaise, shiftExpenseDay } from '../../src/domain/expenses.js';
 import { createApi } from '../src/api.js';
 import { ExpenseError, expenseStore } from '../src/db/expenses.js';
@@ -84,6 +84,61 @@ test('creates an expense and its verified user, survives concurrent replay, and 
   const duplicate = await post({ ...item, mutationId: randomUUID() });
   assert.equal((await duplicate.json()).results[0].error.code, 'EXPENSE_CONFLICT');
   assert.equal((await app.request('/v1/expenses/' + item.expense.id, { headers: authB })).status, 404);
+});
+
+test('category catalog contains the seeded defaults and isolates custom categories by account', async () => {
+  const auth = { Authorization: 'Bearer test-user-d' };
+  const catalog = () => app.request('/v1/categories', { headers: auth });
+  const createCategory = (input: Record<string, unknown>, headers = auth) => app.request('/v1/categories', {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  });
+  assert.equal((await app.request('/v1/categories')).status, 401);
+  const defaults = (await (await catalog()).json()).categories;
+  assert.equal(defaults.length, 10);
+  assert.ok(defaults.every((category: { id: string; icon: string; isDefault: boolean }) => category.isDefault && category.icon === category.id));
+  const input = { id: randomUUID(), name: 'Pets', icon: 'pet' };
+  const [created, replay] = await Promise.all([createCategory(input), createCategory(input)]);
+  assert.equal(created.status, 201);
+  assert.equal(replay.status, 201);
+  assert.deepEqual(await created.json(), await replay.json());
+  const mine = (await (await catalog()).json()).categories;
+  assert.equal(mine.length, 11);
+  assert.deepEqual(mine.find((category: { id: string }) => category.id === input.id), { ...input, isDefault: false });
+  const someoneElse = await app.request('/v1/categories', { headers: authA });
+  assert.ok(!(await someoneElse.json()).categories.some((category: { id: string }) => category.id === input.id));
+  assert.equal((await createCategory({ ...input, id: randomUUID(), name: '  pEtS ' })).status, 409);
+  assert.equal((await createCategory({ ...input, id: randomUUID(), name: 'Groceries' })).status, 409);
+  for (const invalid of [{ name: 'ThirteenChars!' }, { name: ' ' }, { name: 'bad\nname' }, { icon: 'not-an-icon' }, { ownerId: randomUUID() }]) {
+    assert.equal((await createCategory({ ...input, id: randomUUID(), ...invalid })).status, 400);
+  }
+  const concurrent = await Promise.all([
+    createCategory({ id: randomUUID(), name: 'Fitness', icon: 'fitness' }),
+    createCategory({ id: randomUUID(), name: 'fitness', icon: 'fitness' }),
+  ]);
+  assert.deepEqual(concurrent.map(response => response.status).sort(), [201, 409]);
+
+  const ownExpense = operation({ categoryId: input.id, title: 'Pet food', amountPaise: 50, expenseDate: '2018-01-01' });
+  assert.equal((await (await post(ownExpense, auth)).json()).results[0].expense.categoryId, input.id);
+  const historyResponse = await history('?categoryId=' + input.id, auth);
+  const historyPage = await historyResponse.json();
+  assert.equal(historyPage.expenses[0].categoryName, 'Pets');
+  assert.equal(historyPage.expenses[0].categoryIcon, 'pet');
+  const totals = await app.request('/v1/expenses/daily-summary?date=2018-01-01', { headers: auth });
+  assert.deepEqual((await totals.json()).categoryTotals, [{ categoryId: input.id, amountPaise: '50' }]);
+  const forbidden = await post(operation({ categoryId: input.id }), authB);
+  assert.equal((await forbidden.json()).results[0].error.code, 'INVALID_CATEGORY');
+  const sameNameForAnotherAccount = await createCategory({ ...input, id: randomUUID() }, authA);
+  assert.equal(sameNameForAnotherAccount.status, 201);
+});
+
+test('every offered category icon can be saved through the API and database constraint', async () => {
+  const headers = { Authorization: 'Bearer test-user-c', 'Content-Type': 'application/json' };
+  for (const [index, icon] of categoryIconIds.entries()) {
+    const response = await app.request('/v1/categories', { method: 'POST', headers,
+      body: JSON.stringify({ id: randomUUID(), name: 'Option ' + index, icon }) });
+    assert.equal(response.status, 201, `icon ${icon} must be accepted by both validation and storage`);
+    assert.equal((await response.json()).category.icon, icon);
+  }
 });
 
 test('requires a title, validates dates, and defaults the category and date', async () => {
@@ -186,6 +241,8 @@ test('scope and sign history cursors by owner and filter, with stable same-day p
   const secondA = operation(sameDay);
   const itemB = operation(sameDay);
   for (const item of [itemA, secondA]) assert.ok((await (await post(item)).json()).results[0].expense);
+  await db.execute(sql`update expenses set created_at = '2024-01-01T12:00:00.000001Z' where id = ${itemA.expense.id}::uuid`);
+  await db.execute(sql`update expenses set created_at = '2024-01-01T12:00:00.000002Z' where id = ${secondA.expense.id}::uuid`);
   assert.ok((await (await post(itemB, authB)).json()).results[0].expense);
   const filters = '?categoryId=transport&start=2024-01-01&end=2024-01-02&limit=1';
   const first = await (await history(filters)).json();
@@ -193,7 +250,7 @@ test('scope and sign history cursors by owner and filter, with stable same-day p
   assert.ok(first.nextCursor);
   const cursor = '&cursor=' + encodeURIComponent(first.nextCursor);
   const second = await (await history(filters + cursor)).json();
-  const expected = [itemA.expense.id, secondA.expense.id].sort().reverse();
+  const expected = [secondA.expense.id, itemA.expense.id];
   assert.deepEqual([first.expenses[0].id, second.expenses[0].id], expected);
   assert.equal(second.nextCursor, null);
   assert.equal((await history(filters + cursor, authB)).status, 400);
@@ -202,6 +259,68 @@ test('scope and sign history cursors by owner and filter, with stable same-day p
   assert.equal((await history('?limit=101')).status, 400);
   const bHistory = await (await history('', authB)).json();
   assert.deepEqual(bHistory.expenses.map((expense: { id: string }) => expense.id), [itemB.expense.id]);
+});
+
+test('history sorts by date then creation time and paginates microsecond and timestamp ties without skipping rows', async () => {
+  const ownerId = await store.accountFor('test-user-b');
+  assert.ok(ownerId);
+  const ids = [
+    'ffffffff-ffff-4fff-8fff-fffffffffff1',
+    '00000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000003',
+  ];
+  for (const [index, id] of ids.entries()) {
+    const date = index === 3 ? '2019-01-02' : '2019-01-01';
+    const createdAt = index === 0 || index === 3 ? '2019-01-03T10:00:00.000001Z' : '2019-01-03T10:00:00.000002Z';
+    await db.execute(sql`insert into expenses (id, owner_id, category_id, title, amount_paise, expense_date, created_at)
+      values (${id}::uuid, ${ownerId}::uuid, 'education', 'Ordering fixture', 100, ${date}::date, ${createdAt}::timestamptz)`);
+  }
+  const seen: string[] = [];
+  let cursor: string | null = null;
+  do {
+    const query = '?start=2019-01-01&end=2019-01-03&limit=1' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
+    const response = await history(query, authB);
+    assert.equal(response.status, 200);
+    const page = await response.json();
+    seen.push(...page.expenses.map((item: { id: string }) => item.id));
+    assert.match(page.expenses[0].createdAt, /\.\d{6}Z$/);
+    cursor = page.nextCursor;
+    assert.ok(seen.length <= ids.length, 'pagination must not repeat rows');
+  } while (cursor);
+  assert.deepEqual(seen, [ids[3], ids[2], ids[1], ids[0]]);
+});
+
+test('category totals put recently used categories first across the whole selected period', async () => {
+  const ownerId = await store.accountFor('test-user-c');
+  const otherOwner = await store.accountFor('test-user-d');
+  assert.ok(ownerId && otherOwner);
+  const fixtures = [
+    { category: 'food', minute: 1, ownerId, date: '2020-02-03', deleted: false },
+    { category: 'medical', minute: 2, ownerId, date: '2020-02-03', deleted: false },
+    { category: 'food', minute: 3, ownerId, date: '2020-02-03', deleted: false },
+    { category: 'shopping', minute: 4, ownerId, date: '2020-02-03', deleted: false },
+    { category: 'education', minute: 5, ownerId, date: '2020-02-03', deleted: true },
+    { category: 'travel', minute: 6, ownerId: otherOwner, date: '2020-02-03', deleted: false },
+    { category: 'bills', minute: 7, ownerId, date: '2020-02-04', deleted: false },
+  ];
+  for (const fixture of fixtures) {
+    const createdAt = `2020-02-05T10:0${fixture.minute}:00.000000Z`;
+    await db.execute(sql`insert into expenses
+      (id, owner_id, category_id, amount_paise, expense_date, created_at, deleted_at)
+      values (${randomUUID()}::uuid, ${fixture.ownerId}::uuid, ${fixture.category}, 100,
+        ${fixture.date}::date, ${createdAt}::timestamptz, ${fixture.deleted ? createdAt : null}::timestamptz)`);
+  }
+  const response = await app.request('/v1/expenses/daily-summary?date=2020-02-03', {
+    headers: { Authorization: 'Bearer test-user-c' },
+  });
+  assert.equal(response.status, 200);
+  const summary = await response.json();
+  assert.deepEqual(summary.categoryTotals, [
+    { categoryId: 'shopping', amountPaise: '100' },
+    { categoryId: 'food', amountPaise: '200' },
+    { categoryId: 'medical', amountPaise: '100' },
+  ]);
 });
 
 test('rolls back the expense, receipt and revision when the sync event write fails', async () => {
@@ -254,7 +373,9 @@ test('PostgreSQL uses the history indexes with realistic row counts', async () =
     [undefined, 'expenses_active_history_idx'],
     ['food', 'expenses_active_category_history_idx'],
   ] as const) {
-    await store.list(ownerId, { categoryId, limit: 30 }, { id: randomUUID(), date: '2024-08-01' });
+    await store.list(ownerId, { categoryId, limit: 30 }, {
+      id: randomUUID(), date: '2024-08-01', createdAt: '2024-08-01T12:00:00.000000Z',
+    });
     assert.ok(lastQuery);
     const plan = await postgres.query('EXPLAIN ' + lastQuery.query, lastQuery.params);
     assert.match(JSON.stringify(plan.rows), new RegExp(indexName));

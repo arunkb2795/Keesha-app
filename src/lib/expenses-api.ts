@@ -1,9 +1,10 @@
-import { categoryNames, maxExpensePaise, type CategoryId, type CreateExpense, type Expense, type ExpensePeriod } from '@/domain/expenses';
+import { isCategoryIcon, isCategoryId, maxExpensePaise, type CategoryIcon, type CategoryId,
+  type CreateExpense, type Expense, type ExpenseCategory, type ExpensePeriod, type NewCategory } from '@/domain/expenses';
 
 const apiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, '');
 
 type GetToken = () => Promise<string | null>;
-export type HistoryEntry = Expense & { categoryName: string };
+export type HistoryEntry = Expense & { categoryName: string; categoryIcon?: CategoryIcon };
 type CategoryTotal = { categoryId: CategoryId; amountPaise: string };
 export class ExpenseApiError extends Error {}
 
@@ -23,7 +24,16 @@ async function request(getToken: GetToken, path: string, options?: RequestInit):
       headers: { Authorization: 'Bearer ' + token, ...options?.headers },
     });
     if (response.status === 401) throw new ExpenseApiError('Sign in to access your expenses.');
-    if (!response.ok) throw new ExpenseApiError('Couldn’t connect to your expenses. Try again.');
+    if (!response.ok) {
+      const problem: unknown = await response.json().catch(() => undefined);
+      if (isObject(problem) && problem.code === 'CATEGORY_EXISTS') {
+        throw new ExpenseApiError('A category with this name already exists. Choose another name.');
+      }
+      if (isObject(problem) && problem.code === 'INVALID_CATEGORY') {
+        throw new ExpenseApiError('Check the category name and icon, then try again.');
+      }
+      throw new ExpenseApiError('Couldn’t connect to your expenses. Try again.');
+    }
     return await response.json();
   } finally {
     clearTimeout(timer);
@@ -42,13 +52,14 @@ function isExpense(value: unknown): value is Expense {
     && (typeof value.note === 'string' || value.note === null)
     && typeof value.amountPaise === 'number' && Number.isInteger(value.amountPaise)
     && value.amountPaise >= 1 && value.amountPaise <= maxExpensePaise
-    && typeof value.categoryId === 'string' && Object.hasOwn(categoryNames, value.categoryId)
+    && isCategoryId(value.categoryId)
     && typeof value.expenseDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.expenseDate)
     && typeof value.version === 'number' && Number.isInteger(value.version) && value.version > 0;
 }
 
 function isHistoryEntry(value: unknown): value is HistoryEntry {
-  return isObject(value) && typeof value.categoryName === 'string' && isExpense(value);
+  return isObject(value) && typeof value.categoryName === 'string'
+    && (value.categoryIcon === undefined || isCategoryIcon(value.categoryIcon)) && isExpense(value);
 }
 
 export async function saveExpense(getToken: GetToken, mutationId: string, expense: CreateExpense) {
@@ -86,8 +97,27 @@ function isPaise(value: unknown): value is string {
 }
 
 function isCategoryTotal(value: unknown): value is CategoryTotal {
-  return isObject(value) && typeof value.categoryId === 'string' && Object.hasOwn(categoryNames, value.categoryId)
+  return isObject(value) && isCategoryId(value.categoryId)
     && isPaise(value.amountPaise);
+}
+
+function isCategory(value: unknown): value is ExpenseCategory {
+  return isObject(value) && isCategoryId(value.id) && typeof value.name === 'string'
+    && value.name.trim().length > 0 && value.name.length <= 200 && isCategoryIcon(value.icon)
+    && typeof value.isDefault === 'boolean';
+}
+
+export async function listCategories(getToken: GetToken, signal?: AbortSignal) {
+  const result = await request(getToken, '/v1/categories', { signal });
+  if (isObject(result) && Array.isArray(result.categories) && result.categories.every(isCategory)) return result.categories;
+  throw new ExpenseApiError('Couldn’t load your categories. Try again.');
+}
+
+export async function createCategory(getToken: GetToken, category: NewCategory) {
+  const result = await request(getToken, '/v1/categories', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(category) });
+  if (isObject(result) && isCategory(result.category)) return result.category;
+  throw new ExpenseApiError('Couldn’t create your category. Try again.');
 }
 
 export async function getExpenseSummary(getToken: GetToken, period: ExpensePeriod, signal?: AbortSignal) {

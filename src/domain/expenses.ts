@@ -11,9 +11,27 @@ export const categoryNames = {
   other: 'Other',
 } as const;
 
-export type CategoryId = keyof typeof categoryNames;
+export type DefaultCategoryId = keyof typeof categoryNames;
+export type CategoryId = string;
 export type ExpensePeriod = { kind: 'day' | 'month'; date: string };
-export const categoryIds = Object.keys(categoryNames) as CategoryId[];
+export const categoryIds = Object.keys(categoryNames) as DefaultCategoryId[];
+export const categoryIconIds = [...categoryIds, 'home', 'person', 'fitness', 'gift', 'work', 'pet',
+  'coffee', 'car', 'bicycle', 'fuel', 'parking', 'bank', 'savings', 'phone', 'internet', 'music',
+  'game', 'beauty', 'clothing', 'baby', 'plants', 'tools'] as const;
+export type CategoryIcon = (typeof categoryIconIds)[number];
+export type ExpenseCategory = { id: CategoryId; name: string; icon: CategoryIcon; isDefault: boolean };
+export type NewCategory = { id: string; name: string; icon: CategoryIcon };
+export const maxCategoryNameLength = 12;
+export const defaultCategories: ExpenseCategory[] = categoryIds.map(id => ({
+  id, name: categoryNames[id], icon: id, isDefault: true,
+}));
+export function isCategoryIcon(value: unknown): value is CategoryIcon {
+  return typeof value === 'string' && categoryIconIds.some(icon => icon === value);
+}
+export function isCategoryId(value: unknown): value is CategoryId {
+  return typeof value === 'string' && (Object.hasOwn(categoryNames, value)
+    || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value));
+}
 
 export const maxExpensePaise = 999_999_999;
 export const maxExpenseTextLength = 200;
