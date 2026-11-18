@@ -141,6 +141,40 @@ test('every offered category icon can be saved through the API and database cons
   }
 });
 
+test('transaction filters and daily totals include the whole matching day across pagination', async () => {
+  const headers = { Authorization: 'Bearer test-user-d' };
+  const day = '2017-02-01';
+  for (const expense of [
+    { categoryId: 'food', amountPaise: 100 },
+    { categoryId: 'food', amountPaise: 200 },
+    { categoryId: 'shopping', amountPaise: 500 },
+  ]) assert.ok((await (await post(operation({ ...expense, expenseDate: day }), headers)).json()).results[0].expense);
+  const ownerId = await store.accountFor('test-user-d');
+  const otherId = await store.accountFor('test-user-c');
+  assert.ok(ownerId && otherId);
+  await db.insert(expenses).values([
+    { id: randomUUID(), ownerId, categoryId: 'food', amountPaise: 3000, expenseDate: day, deletedAt: new Date() },
+    { id: randomUUID(), ownerId: otherId, categoryId: 'food', amountPaise: 9000, expenseDate: day },
+    { id: randomUUID(), ownerId, categoryId: 'food', amountPaise: 8000, expenseDate: '2017-02-02' },
+  ]);
+  const query = '?start=2017-02-01&end=2017-02-02&categoryId=food&limit=1';
+  const first = await (await history(query, headers)).json();
+  assert.equal(first.expenses.length, 1);
+  assert.equal(first.expenses[0].categoryId, 'food');
+  assert.deepEqual(first.dateTotals, [{ date: day, totalPaise: '300' }]);
+  assert.ok(first.nextCursor);
+  const second = await (await history(query + '&cursor=' + encodeURIComponent(first.nextCursor), headers)).json();
+  assert.equal(second.expenses.length, 1);
+  assert.notEqual(first.expenses[0].id, second.expenses[0].id);
+  assert.deepEqual(second.dateTotals, first.dateTotals);
+  assert.equal(second.nextCursor, null);
+  const all = await (await history('?start=2017-02-01&end=2017-02-02&limit=1', headers)).json();
+  assert.deepEqual(all.dateTotals, [{ date: day, totalPaise: '800' }]);
+  const empty = await (await history('?start=2017-02-01&end=2017-02-02&categoryId=travel', headers)).json();
+  assert.deepEqual(empty.expenses, []);
+  assert.deepEqual(empty.dateTotals, []);
+});
+
 test('requires a title, validates dates, and defaults the category and date', async () => {
   for (const expense of [
     { amountPaise: 0 }, { amountPaise: 2.5 }, { amountPaise: '12' }, { amountPaise: 1_000_000_000 },
@@ -346,6 +380,102 @@ test('rolls back the expense, receipt and revision when the sync event write fai
   const retry = await post(item);
   assert.equal((await retry.json()).results[0].expense.id, item.expense.id);
   assert.equal(await revision(), before + 1n);
+});
+
+test('edits persist atomically, replay safely, refresh totals and reject stale or foreign edits', async () => {
+  const item = operation({ title: 'Original', note: 'Keep this note', expenseDate: '2018-01-01', categoryId: 'food' });
+  await post(item, authB);
+  const edit = { mutationId: randomUUID(), operation: 'update', expense: {
+    id: item.expense.id, version: 1, title: '  Paracetamol  ', amountPaise: 50000,
+    categoryId: 'medical', expenseDate: '2018-01-02',
+  } };
+  const send = (input = edit, auth = authB) => app.request('/v1/sync/mutations', {
+    method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ operations: [input] }),
+  });
+  const owner = (await store.accountFor('test-user-b'))!;
+  const revision = async () => (await db.select().from(appUsers).where(eq(appUsers.id, owner)))[0].syncRevision;
+  const before = await revision();
+  const [first, replay] = await Promise.all([send(), send()]);
+  const saved = await first.json();
+  assert.deepEqual(await replay.json(), saved);
+  assert.deepEqual(saved.results[0].expense, { ...edit.expense, title: 'Paracetamol', note: 'Keep this note', version: 2 });
+  assert.equal(await revision(), before + 1n);
+  const record = await app.request('/v1/expenses/' + item.expense.id, { headers: authB });
+  assert.deepEqual(await record.json(), saved.results[0].expense);
+  const oldDay = await app.request('/v1/expenses/daily-summary?date=2018-01-01', { headers: authB });
+  assert.equal((await oldDay.json()).totalPaise, '0');
+  const newDay = await app.request('/v1/expenses/daily-summary?date=2018-01-02', { headers: authB });
+  assert.deepEqual((await newDay.json()).categoryTotals, [{ categoryId: 'medical', amountPaise: '50000' }]);
+  assert.equal((await (await send({ ...edit, mutationId: randomUUID() })).json()).results[0].error.code, 'VERSION_CONFLICT');
+  assert.equal((await (await send(edit, authA)).json()).results[0].error.code, 'EXPENSE_NOT_FOUND');
+  assert.equal((await (await send({ ...edit, expense: { ...edit.expense, title: 'Changed retry' } })).json()).results[0].error.code, 'MUTATION_CONFLICT');
+  const next = { ...edit, mutationId: randomUUID(), expense: { ...edit.expense, version: 2, expenseDate: '9999-01-01' } };
+  assert.equal((await (await send(next)).json()).results[0].error.code, 'FUTURE_DATE');
+  for (const changes of [{ title: ' ' }, { amountPaise: 0 }, { expenseDate: '2025-02-30' }, { version: 0 }]) {
+    const response = await send({ ...edit, mutationId: randomUUID(), expense: { ...edit.expense, ...changes } });
+    assert.equal(response.status, 400);
+  }
+  const [foreignCategory] = await db.select().from(categories).where(eq(categories.ownerId, (await store.accountFor('test-user-d'))!));
+  assert.ok(foreignCategory);
+  assert.equal((await (await send({ ...edit, mutationId: randomUUID(), expense: {
+    ...edit.expense, version: 2, categoryId: foreignCategory.id,
+  } })).json()).results[0].error.code, 'INVALID_CATEGORY');
+  await db.execute(sql`alter table sync_changes add constraint test_edit_failure check (revision < 0) not valid`);
+  const valid = { ...edit, mutationId: randomUUID(), expense: { ...edit.expense, version: 2, amountPaise: 12345 } };
+  try {
+    assert.equal((await send(valid)).status, 500);
+    assert.equal((await store.get(owner, item.expense.id))?.amountPaise, 50000);
+    assert.equal(await revision(), before + 1n);
+  } finally {
+    await db.execute(sql`alter table sync_changes drop constraint test_edit_failure`);
+  }
+  assert.equal((await (await send(valid)).json()).results[0].expense.version, 3);
+});
+
+test('category edits preserve expenses, personalize defaults and isolate accounts', async () => {
+  const auth = { Authorization: 'Bearer test-user-c' };
+  const catalog = async (headers = auth) => (await (await app.request('/v1/categories', { headers })).json()).categories;
+  const edit = (input: Record<string, unknown>, headers = auth) => app.request('/v1/categories/' + input.id, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  });
+  const initial = (await catalog()).find((category: { id: string }) => category.id === 'food');
+  const input = { id: 'food', name: 'Dining', icon: 'coffee', previousName: initial.name, previousIcon: initial.icon };
+  const expense = operation({ categoryId: 'food', title: 'Category edit fixture', expenseDate: '2017-01-01' });
+  await post(expense, auth);
+  const savedExpense = await (await app.request('/v1/expenses/' + expense.expense.id, { headers: auth })).json();
+  assert.equal((await app.request('/v1/categories/food', { method: 'POST' })).status, 401);
+  assert.equal((await edit(input)).status, 200);
+  assert.equal((await edit(input)).status, 200, 'an identical retry succeeds');
+  assert.deepEqual((await catalog()).find((category: { id: string }) => category.id === 'food'), {
+    id: 'food', name: 'Dining', icon: 'coffee', isDefault: true,
+  });
+  assert.equal((await catalog(authB)).find((category: { id: string }) => category.id === 'food').name, initial.name);
+  const [globalDefault] = await db.select().from(categories).where(eq(categories.id, 'food'));
+  assert.equal(globalDefault.name, initial.name);
+  const updatedHistory = await history('?start=2017-01-01&end=2017-01-02', auth);
+  const [row] = (await updatedHistory.json()).expenses;
+  assert.equal(row.categoryName, 'Dining'); assert.equal(row.categoryIcon, 'coffee');
+  assert.deepEqual(await (await app.request('/v1/expenses/' + expense.expense.id, { headers: auth })).json(), savedExpense);
+  assert.equal((await edit({ ...input, name: 'Stale' })).status, 409);
+  assert.equal((await edit({ ...input, previousName: 'Dining', previousIcon: 'coffee', name: 'groceries' })).status, 409);
+  assert.equal((await edit({ ...input, previousName: 'Dining', previousIcon: 'coffee', name: 'WayTooLongName' })).status, 400);
+  for (const invalid of [{ name: '' }, { name: 'bad\nname' }, { icon: 'invalid' }, { ownerId: randomUUID() }]) {
+    assert.equal((await edit({ ...input, ...invalid })).status, 400);
+  }
+  const create = (category: Record<string, unknown>) => app.request('/v1/categories', {
+    method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify(category),
+  });
+  assert.equal((await create({ id: randomUUID(), name: 'DINING', icon: 'food' })).status, 409);
+  const custom = { id: randomUUID(), name: 'Classes', icon: 'education' };
+  assert.equal((await create(custom)).status, 201);
+  const customEdit = { ...custom, name: 'Tuition', icon: 'work', previousName: custom.name, previousIcon: custom.icon };
+  assert.equal((await edit(customEdit, authB)).status, 404);
+  assert.equal((await edit(customEdit)).status, 200);
+  assert.equal((await catalog()).find((category: { id: string }) => category.id === custom.id).name, 'Tuition');
+  const entertainment = (await catalog()).find((category: { id: string }) => category.id === 'entertainment');
+  assert.equal((await edit({ id: entertainment.id, name: entertainment.name, icon: 'music',
+    previousName: entertainment.name, previousIcon: entertainment.icon })).status, 200, 'legacy long names allow icon-only edits');
 });
 
 test('database independently enforces category, amount, and owner integrity', async () => {

@@ -12,6 +12,13 @@ export const newCategorySchema = z.strictObject({
   name: z.string().trim().min(1).max(maxCategoryNameLength).refine(value => !/[\u0000-\u001f\u007f]/.test(value)),
   icon: z.enum(categoryIconIds),
 });
+export const editCategorySchema = z.strictObject({
+  id: categoryId,
+  name: z.string().trim().min(1).max(maxExpenseTextLength).refine(value => !/[\u0000-\u001f\u007f]/.test(value)),
+  icon: z.enum(categoryIconIds),
+  previousName: z.string().min(1).max(maxExpenseTextLength),
+  previousIcon: z.enum(categoryIconIds),
+});
 const expenseFields = {
   id: uuid,
   amountPaise,
@@ -45,12 +52,20 @@ const create = insert.extend({
   expenseDate: z.iso.date().optional(),
 }).strict();
 
-export const createBatchSchema = z.strictObject({
-  operations: z.array(z.strictObject({
+const createOperationSchema = z.strictObject({
     mutationId: uuid,
     operation: z.literal('create'),
     expense: create,
-  })).min(1).max(50),
+});
+const updateOperationSchema = z.strictObject({
+  mutationId: uuid,
+  operation: z.literal('update'),
+  expense: z.strictObject({ id: uuid, version: z.number().int().positive(),
+    title: displayText, amountPaise, categoryId,
+    expenseDate: z.iso.date().refine(value => value >= '0001-01-01') }),
+});
+export const createBatchSchema = z.strictObject({
+  operations: z.array(z.discriminatedUnion('operation', [createOperationSchema, updateOperationSchema])).min(1).max(50),
 });
 
 export const historyQuerySchema = z.strictObject({
@@ -63,8 +78,10 @@ export const historyQuerySchema = z.strictObject({
 
 export const cursorPayloadSchema = z.strictObject({ date: z.iso.date(), createdAt: z.iso.datetime({ precision: 6 }), id: uuid });
 export const calendarDateSchema = z.iso.date().refine(value => value >= '0001-01-01');
-export type CreateOperation = z.output<typeof createBatchSchema>['operations'][number];
+export type CreateOperation = z.output<typeof createOperationSchema>;
+export type UpdateOperation = z.output<typeof updateOperationSchema>;
 export type HistoryQuery = z.output<typeof historyQuerySchema>;
 export type ExpenseCursor = z.output<typeof cursorPayloadSchema>;
 export type Profile = z.output<typeof profileSchema>;
 export type NewCategory = z.output<typeof newCategorySchema>;
+export type EditCategory = z.output<typeof editCategorySchema>;

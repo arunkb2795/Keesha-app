@@ -10,16 +10,17 @@ import { SpendingCard, SpendingCategories, TransactionList, TransactionSkeleton 
 import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/button';
 import { CreateCategorySheet } from '@/components/categories/create-category-sheet';
+import { TransactionCategoryFilter } from '@/components/categories/transaction-category-filter';
 import { Radii, Spacing } from '@/constants/theme';
-import { accountToday, expenseMonthBounds, shiftExpenseDay, type ExpensePeriod } from '@/domain/expenses';
+import { accountToday, expenseMonthBounds, shiftExpenseDay, type CategoryId, type ExpensePeriod } from '@/domain/expenses';
 import { useTheme } from '@/hooks/use-theme';
-import { getExpenseSummary, listExpenses, type HistoryEntry } from '@/lib/expenses-api';
+import { getExpenseSummary } from '@/lib/expenses-api';
+import { useTransactions } from '@/hooks/use-transactions';
 import { useCategories } from '@/providers/categories-provider';
 
 type HomeData = {
   periodKey: string;
   summary: Awaited<ReturnType<typeof getExpenseSummary>>;
-  recent: HistoryEntry[];
 };
 
 export default function HomeScreen() {
@@ -32,6 +33,7 @@ export default function HomeScreen() {
   const catalog = useCategories();
   const [creatingCategory, setCreatingCategory] = useState(false);
   const [createdCategoryId, setCreatedCategoryId] = useState<string>();
+  const [transactionCategory, setTransactionCategory] = useState<CategoryId>();
   const today = accountToday();
   const currentMonth = expenseMonthBounds(today).start;
   const [selection, setSelection] = useState<ExpensePeriod>();
@@ -43,17 +45,16 @@ export default function HomeScreen() {
   const data = loaded?.periodKey === periodKey ? loaded : undefined;
   const failed = failedPeriod === periodKey;
   const loading = !data && !failed;
+  const range = kind === 'day' ? { start: date, end: shiftExpenseDay(date, 1) } : expenseMonthBounds(date);
+  const transactions = useTransactions({ categoryId: transactionCategory, start: range.start, end: range.end,
+    limit: 5, revision: expenseRevision });
 
   useEffect(() => {
     if (!isFocused) return;
     const request = new AbortController();
-    const range = kind === 'day' ? { start: date, end: shiftExpenseDay(date, 1) } : expenseMonthBounds(date);
-    void Promise.all([
-      getExpenseSummary(getToken, { kind, date }, request.signal),
-      listExpenses(getToken, undefined, request.signal, 5, range),
-    ]).then(([summary, page]) => {
+    void getExpenseSummary(getToken, { kind, date }, request.signal).then(summary => {
       if (!request.signal.aborted) {
-        setLoaded({ periodKey, summary, recent: page.expenses });
+        setLoaded({ periodKey, summary });
         setFailedPeriod(undefined);
       }
     }).catch(() => {
@@ -85,6 +86,12 @@ export default function HomeScreen() {
       <SpendingCard label={kind === 'day' ? 'Daily spend' : isCurrentMonth ? 'This month’s spend' : 'Monthly spend'}
         totalPaise={data?.summary.totalPaise} previousMonthTotalPaise={data?.summary.previousMonthTotalPaise}
         loadingPeriod={loading ? kind : undefined} />
+      {failed && <View style={{ gap: Spacing.two }}>
+        <ThemedText type="small" accessibilityLiveRegion="polite">Couldn’t refresh your spending summary.</ThemedText>
+        <Button label="Retry summary" variant="secondary" onPress={() => {
+          setFailedPeriod(undefined); setRetry(value => value + 1);
+        }} />
+      </View>}
       <SpendingCategories categories={catalog.categories} totals={totals} onSelect={openExpense}
         loading={loading || catalog.loading} onAdd={() => setCreatingCategory(true)} addDisabled={catalog.loading || !!catalog.error}
         revealCategoryId={createdCategoryId} />
@@ -108,19 +115,20 @@ export default function HomeScreen() {
             <ThemedText type="linkPrimary" style={styles.historyLink}>Your history</ThemedText>
           </Link>
         </View>
-        {data && data.recent.length > 0 && <TransactionList transactions={data.recent} />}
-        {data?.recent.length === 0 && !failed && (
+        <TransactionCategoryFilter categories={catalog.categories} selectedId={transactionCategory} onSelect={setTransactionCategory} />
+        {transactions.page && !transactions.loading && transactions.page.expenses.length > 0 &&
+          <TransactionList transactions={transactions.page.expenses}
+            dateTotals={new Map(transactions.page.dateTotals.map(item => [item.date, item.totalPaise]))} />}
+        {transactions.page?.expenses.length === 0 && !transactions.loading && !transactions.failed && (
           <DashboardEmptyState icon="bills" title={isCurrentMonth ? 'No recent transactions' : 'No transactions'}
-            message={isCurrentMonth ? 'Use the + button to add your first expense. It’ll show up here.'
+            message={transactionCategory ? 'No transactions in this category for the selected period.'
+              : isCurrentMonth ? 'Use the + button to add your first expense. It’ll show up here.'
               : 'No expenses were recorded for this period.'} />
         )}
-        {loading && <TransactionSkeleton />}
-        {failed && <>
+        {transactions.loading && <TransactionSkeleton />}
+        {transactions.failed && <>
           <ThemedText accessibilityLiveRegion="polite">Couldn’t refresh your expenses.</ThemedText>
-          <Button label="Retry" variant="secondary" onPress={() => {
-            setFailedPeriod(undefined);
-            setRetry(value => value + 1);
-          }} />
+          <Button label="Retry" variant="secondary" onPress={transactions.reload} />
         </>}
       </View>
     </DashboardScreen>

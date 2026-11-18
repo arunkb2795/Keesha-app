@@ -10,6 +10,8 @@ import { Radii, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 const symbols = {
+  categories: { ios: 'square.grid.2x2', android: 'category', web: 'category' },
+  edit: { ios: 'pencil', android: 'edit', web: 'edit' },
   home: { ios: 'house', android: 'home', web: 'home' },
   history: { ios: 'clock', android: 'history', web: 'history' },
   settings: { ios: 'gearshape', android: 'settings', web: 'settings' },
@@ -54,6 +56,7 @@ const symbols = {
   plants: { ios: 'leaf', android: 'potted_plant', web: 'potted_plant' },
   tools: { ios: 'wrench.and.screwdriver', android: 'construction', web: 'construction' },
   check: { ios: 'checkmark', android: 'check', web: 'check' },
+  filter: { ios: 'line.3.horizontal.decrease', android: 'filter_list', web: 'filter_list' },
 } as const satisfies Record<string, SymbolViewProps['name']>;
 
 export type DashboardIconName = keyof typeof symbols;

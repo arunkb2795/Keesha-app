@@ -2,22 +2,22 @@
   "expo": {
     "name": "keesha",
     "slug": "keesha",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/wallet-icon.png",
     "scheme": "keesha",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/images/wallet-icon.png"
     },
     "android": {
       "package": "com.keesha.app",
-      "versionCode": 3,
+      "versionCode": 4,
+      "icon": "./assets/images/wallet-icon.png",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#176346",
+        "foregroundImage": "./assets/images/wallet-adaptive-foreground.png",
+        "monochromeImage": "./assets/images/wallet-monochrome.png"
       },
       "predictiveBackGestureEnabled": false
     },
@@ -26,7 +26,14 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-router",
+      [
+        "expo-router",
+        {
+          "asyncRoutes": {
+            "web": "production"
+          }
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -52,11 +59,6 @@
       "reactCompiler": true
     },
     "extra": {
-      "router": {
-        "asyncRoutes": {
-          "web": true
-        }
-      },
       "eas": {
         "projectId": "a3f4c02e-a554-44d7-8ae8-67ef54c0971e"
       }

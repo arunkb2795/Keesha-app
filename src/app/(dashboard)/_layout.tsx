@@ -1,4 +1,3 @@
-import { useAuth } from '@clerk/expo';
 import { usePathname } from 'expo-router';
 import { TabList, TabSlot, Tabs, TabTrigger } from 'expo-router/ui';
 import { useCallback, useState } from 'react';
@@ -12,17 +11,16 @@ import { ThemedText } from '@/components/themed-text';
 import { Radii, Spacing } from '@/constants/theme';
 import { type CategoryId } from '@/domain/expenses';
 import { useTheme } from '@/hooks/use-theme';
-import { CategoriesProvider } from '@/providers/categories-provider';
 
 const tabs = [
   { name: 'home', title: 'Home', href: '/home' },
   { name: 'history', title: 'History', href: '/history' },
+  { name: 'categories', title: 'Categories', href: '/categories' },
   { name: 'settings', title: 'Settings', href: '/settings' },
 ] as const;
 
 export default function DashboardLayout() {
-  const { userId } = useAuth();
-  return userId ? <CategoriesProvider key={userId}><DashboardTabs /></CategoriesProvider> : null;
+  return <DashboardTabs />;
 }
 
 function DashboardTabs() {
@@ -89,6 +87,6 @@ const styles = StyleSheet.create({
   footer: { position: 'absolute', zIndex: 1, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   bar: { flexDirection: 'row', gap: Spacing.one, padding: Spacing.one, borderRadius: Radii.pill, borderWidth: 1 },
   add: { width: 54, height: 54, borderRadius: Radii.pill, alignItems: 'center', justifyContent: 'center' },
-  tab: { minHeight: dashboardTabHeight, minWidth: 56, paddingHorizontal: 15, borderRadius: Radii.pill,
+  tab: { minHeight: dashboardTabHeight, minWidth: 48, paddingHorizontal: 12, borderRadius: Radii.pill,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.two },
 });

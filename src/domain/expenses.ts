@@ -21,6 +21,7 @@ export const categoryIconIds = [...categoryIds, 'home', 'person', 'fitness', 'gi
 export type CategoryIcon = (typeof categoryIconIds)[number];
 export type ExpenseCategory = { id: CategoryId; name: string; icon: CategoryIcon; isDefault: boolean };
 export type NewCategory = { id: string; name: string; icon: CategoryIcon };
+export type EditCategory = { id: CategoryId; name: string; icon: CategoryIcon; previousName: string; previousIcon: CategoryIcon };
 export const maxCategoryNameLength = 12;
 export const defaultCategories: ExpenseCategory[] = categoryIds.map(id => ({
   id, name: categoryNames[id], icon: id, isDefault: true,
@@ -123,6 +124,27 @@ function formatIndianInteger(value: bigint) {
   return value.toString().replace(/\d(?=(?:\d{2})+\d$)/g, '$&,');
 }
 
+const transactionDate = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const transactionDateWithYear = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+
+export function groupTransactionsByDate<T extends { expenseDate: string; amountPaise: number }>(transactions: readonly T[], today: string) {
+  const yesterday = shiftExpenseDay(today, -1);
+  const groups = new Map<string, { key: string; label: string; expenses: T[]; totalPaise: string }>();
+  for (const transaction of transactions) {
+    const date = transaction.expenseDate;
+    let group = groups.get(date);
+    if (!group) {
+      const label = date === today ? 'Today' : date === yesterday ? 'Yesterday'
+        : (date.slice(0, 4) === today.slice(0, 4) ? transactionDate : transactionDateWithYear).format(new Date(date));
+      group = { key: date, label, expenses: [], totalPaise: '0' };
+      groups.set(date, group);
+    }
+    group.expenses.push(transaction);
+    group.totalPaise = (BigInt(group.totalPaise) + BigInt(transaction.amountPaise)).toString();
+  }
+  return [...groups.values()];
+}
+
 export function formatPaise(value: string | number) {
   const paise = BigInt(value);
   return '₹' + formatIndianInteger(paise / 100n) + '.' + String(paise % 100n).padStart(2, '0');
@@ -160,3 +182,19 @@ export type CreateExpense = {
   expenseDate?: string;
   note?: string;
 };
+
+export function previewCategoryTotals(totals: ReadonlyMap<CategoryId, string>, monthStart: string,
+  original: Pick<Expense, 'amountPaise' | 'categoryId' | 'expenseDate'>,
+  draft: { amountPaise: number | null; categoryId: CategoryId; expenseDate: string }) {
+  const preview = new Map(totals);
+  if (draft.amountPaise === null) return preview;
+  const month = monthStart.slice(0, 7);
+  if (original.expenseDate.slice(0, 7) === month) {
+    const remaining = BigInt(preview.get(original.categoryId) ?? '0') - BigInt(original.amountPaise);
+    preview.set(original.categoryId, (remaining < 0n ? 0n : remaining).toString());
+  }
+  if (draft.expenseDate.slice(0, 7) === month) {
+    preview.set(draft.categoryId, (BigInt(preview.get(draft.categoryId) ?? '0') + BigInt(draft.amountPaise)).toString());
+  }
+  return preview;
+}

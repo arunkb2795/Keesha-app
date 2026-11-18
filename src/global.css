@@ -8,17 +8,20 @@
   --font-serif: Georgia, 'Times New Roman', serif;
 }
 
-[data-testid='category-icon-picker'] {
+[data-testid='category-icon-picker'],
+[data-testid='transaction-category-filters'] {
   scroll-behavior: smooth;
   scrollbar-width: none;
 }
 
-[data-testid='category-icon-picker']::-webkit-scrollbar {
+[data-testid='category-icon-picker']::-webkit-scrollbar,
+[data-testid='transaction-category-filters']::-webkit-scrollbar {
   display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  [data-testid='category-icon-picker'] {
+  [data-testid='category-icon-picker'],
+  [data-testid='transaction-category-filters'] {
     scroll-behavior: auto;
   }
 }

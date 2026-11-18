@@ -1,0 +1,276 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "5602fe73-f954-4346-9a7b-9904e1f25986",
+  "prevIds": [
+    "41e84024-a81b-4aab-9c42-d8712f766bf5"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "category_preferences"
+      ],
+      "writes": [
+        "s|tbl|public.category_preferences",
+        "n|tbl|public.category_preferences",
+        "e|tbl|public.category_preferences",
+        "n|rel|public.category_preferences",
+        "n|type|public.category_preferences",
+        "n|rel|public.category_preferences_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "category_preferences",
+        "category_preferences_owner_name_idx"
+      ],
+      "writes": [
+        "s|idx|public.category_preferences_owner_name_idx",
+        "n|idx|public.category_preferences_owner_name_idx",
+        "e|idx|public.category_preferences_owner_name_idx",
+        "n|rel|public.category_preferences_owner_name_idx"
+      ],
+      "reads": [
+        "n|tbl|public.category_preferences",
+        "n|sch|public",
+        "n|col|public.category_preferences.owner_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "category_preferences"
+      ],
+      "writes": [
+        "s|fk|public.category_preferences.category_preferences_owner_id_app_users_id_fkey",
+        "n|fk|public.category_preferences.category_preferences_owner_id_app_users_id_fkey",
+        "e|fk|public.category_preferences.category_preferences_owner_id_app_users_id_fkey",
+        "n|con|public.category_preferences.category_preferences_owner_id_app_users_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.category_preferences",
+        "n|sch|public",
+        "n|tbl|public.app_users",
+        "n|sch|public",
+        "n|col|public.category_preferences.owner_id",
+        "n|col|public.app_users.id",
+        "e|uniqueness|public.app_users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "category_preferences"
+      ],
+      "writes": [
+        "s|fk|public.category_preferences.category_preferences_category_id_expense_categories_id_fkey",
+        "n|fk|public.category_preferences.category_preferences_category_id_expense_categories_id_fkey",
+        "e|fk|public.category_preferences.category_preferences_category_id_expense_categories_id_fkey",
+        "n|con|public.category_preferences.category_preferences_category_id_expense_categories_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.category_preferences",
+        "n|sch|public",
+        "n|tbl|public.expense_categories",
+        "n|sch|public",
+        "n|col|public.category_preferences.category_id",
+        "n|col|public.expense_categories.id",
+        "e|uniqueness|public.expense_categories.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "category_preferences",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "category_preferences",
+        "name": "owner_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "category_preferences",
+        "name": "category_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "category_preferences",
+        "name": "name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "category_preferences",
+        "name": "icon",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "category_preferences",
+        "name": "category_preferences_owner_name_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "lower(btrim(\"name\"))",
+            "isExpression": true,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "category_preferences",
+        "name": "category_preferences_owner_id_app_users_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "owner_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "app_users",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "category_preferences",
+        "name": "category_preferences_category_id_expense_categories_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "category_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "expense_categories",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "category_preferences",
+        "name": "category_preferences_pkey",
+        "columns": [
+          "owner_id",
+          "category_id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "category_preferences",
+        "name": "category_preferences_name_length",
+        "value": "char_length(btrim(\"name\")) between 1 and 200",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "category_preferences",
+        "name": "category_preferences_icon",
+        "value": "\"icon\" in ('food', 'grocery', 'transport', 'shopping', 'bills', 'medical', 'entertainment', 'travel', 'education', 'other', 'home', 'person', 'fitness', 'gift', 'work', 'pet', 'coffee', 'car', 'bicycle', 'fuel', 'parking', 'bank', 'savings', 'phone', 'internet', 'music', 'game', 'beauty', 'clothing', 'baby', 'plants', 'tools')",
+        "entityType": "checks"
+      }
+    }
+  ]
+}

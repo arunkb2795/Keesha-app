@@ -2,13 +2,17 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { connectDatabase } from '../db/client.js';
+import { migrationDatabaseUrl } from '../env.js';
 import { expenseStore } from '../db/expenses.js';
 import { appUsers, expenses, mutationReceipts, syncChanges } from '../db/schema.js';
 import type { CreateOperation } from '../validation.js';
 
 async function main() {
-  const { db, close } = connectDatabase();
+  // Use the runtime role for application writes; the owner connection only provisions/cleans fixtures.
+  const runtime = connectDatabase();
+  const { db, close } = connectDatabase(migrationDatabaseUrl());
   const store = expenseStore(db);
+  const runtimeStore = expenseStore(runtime.db);
   const suffix = randomUUID();
   const ownerClerkId = 'smoke_' + suffix;
   const otherClerkId = 'smoke_other_' + suffix;
@@ -45,10 +49,28 @@ async function main() {
     assert.equal(event.revision, 1n);
     assert.equal(event.entityId, id);
 
-    // Verify storage of version updates and soft deletes on the synthetic row.
+    // Exercise the same update path as the editor against the real driver.
+    const update = { operation: 'update' as const, mutationId: randomUUID(), expense: {
+      id, version: saved.version, title: 'Updated synthetic lunch', amountPaise: 2345,
+      categoryId: 'medical', expenseDate: saved.expenseDate,
+    } };
+    const edited = await runtimeStore.update(ownerId, update);
+    assert.equal(edited.version, 2);
+    assert.equal(edited.amountPaise, 2345);
+    assert.deepEqual(await runtimeStore.update(ownerId, update), edited);
+    assert.deepEqual(await store.get(ownerId, id), edited);
+    const beforeCategory = (await runtimeStore.listCategories(ownerId)).find(category => category.id === 'food')!;
+    const categoryEdit = { id: 'food', name: 'Smoke dining', icon: 'coffee' as const,
+      previousName: beforeCategory.name, previousIcon: beforeCategory.icon };
+    const personalized = await runtimeStore.updateCategory(ownerId, categoryEdit);
+    assert.equal(personalized.name, 'Smoke dining');
+    assert.deepEqual(await runtimeStore.updateCategory(ownerId, categoryEdit), personalized);
+    assert.equal((await runtimeStore.listCategories(otherOwnerId)).find(category => category.id === 'food')?.name, beforeCategory.name);
+    const custom = await runtimeStore.createCategory(ownerId, { id: randomUUID(), name: 'Smoke custom', icon: 'work' });
+    assert.equal((await runtimeStore.updateCategory(ownerId, { id: custom.id, name: 'Smoke edited', icon: 'gift',
+      previousName: custom.name, previousIcon: custom.icon })).name, 'Smoke edited');
+    // Verify soft deletes on the synthetic row.
     const ownedExpense = and(eq(expenses.ownerId, ownerId), eq(expenses.id, id));
-    await db.update(expenses).set({ title: 'Updated synthetic lunch', version: 2, updatedAt: new Date() }).where(ownedExpense);
-    assert.equal((await store.get(ownerId, id))?.version, 2);
     await db.update(expenses).set({ deletedAt: new Date(), version: 3, updatedAt: new Date() }).where(ownedExpense);
     assert.equal(await store.get(ownerId, id), undefined);
   } finally {
@@ -56,13 +78,18 @@ async function main() {
       await db.delete(appUsers).where(eq(appUsers.clerkUserId, ownerClerkId));
       await db.delete(appUsers).where(eq(appUsers.clerkUserId, otherClerkId));
     } finally {
-      await close();
+      await Promise.all([close(), runtime.close()]);
     }
   }
-  console.log('Neon smoke passed: create, read, update, delete, owner isolation, concurrent replay, rollback, and fixture cleanup.');
+  console.log('Neon smoke passed: expense and category edits, personalized defaults, owner isolation, replay, rollback, and fixture cleanup.');
 }
 
-main().catch(() => {
+main().catch(error => {
+  // Log diagnostic identifiers without SQL parameters or connection strings.
+  for (let cause = error; cause; cause = cause.cause) {
+    console.error(JSON.stringify({ name: cause.name, code: cause.code, column: cause.column, constraint: cause.constraint,
+      message: cause.code === '42501' ? cause.message : undefined }));
+  }
   console.error('Neon expense smoke failed. Check the database configuration, migrations, and connectivity.');
   process.exitCode = 1;
 });

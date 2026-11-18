@@ -5,7 +5,7 @@ import { cors } from 'hono/cors';
 import { accountToday, expenseMonthBounds, shiftExpenseDay, type Expense } from '../../src/domain/expenses.js';
 import { ExpenseError, type expenseStore } from './db/expenses.js';
 import {
-  calendarDateSchema, createBatchSchema, cursorPayloadSchema, expenseSchema, historyQuerySchema, newCategorySchema, profileSchema, uuid,
+  calendarDateSchema, createBatchSchema, cursorPayloadSchema, expenseSchema, historyQuerySchema, newCategorySchema, editCategorySchema, profileSchema, uuid,
   type ExpenseCursor, type HistoryQuery,
 } from './validation.js';
 
@@ -87,6 +87,17 @@ export function createApi({ store, authenticate, loadProfile, cursorSecret, webO
     return c.json({ category: await store.createCategory(owner, input.data) }, 201);
   });
 
+  app.post('/v1/categories/:id', bodyLimit({ maxSize: 2048,
+    onError: c => c.json({ code: 'PAYLOAD_TOO_LARGE', message: 'This request is too large.' }, 413),
+  }), async c => {
+    const input = editCategorySchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!input.success || input.data.id !== c.req.param('id').toLowerCase()) {
+      throw new ExpenseError(400, 'INVALID_CATEGORY', 'Check the category name and icon, then try again.');
+    }
+    const owner = await ensureOwner(c.get('clerkUserId'));
+    return c.json({ category: await store.updateCategory(owner, input.data) });
+  });
+
   app.post('/v1/sync/mutations', bodyLimit({
     maxSize: 96 * 1024,
     onError: c => c.json({
@@ -104,7 +115,8 @@ export function createApi({ store, authenticate, loadProfile, cursorSecret, webO
     for (const operation of parsed.data.operations) {
       const { mutationId } = operation;
       try {
-        results.push({ mutationId, expense: await store.create(ownerId, operation) });
+        results.push({ mutationId, expense: operation.operation === 'update'
+          ? await store.update(ownerId, operation) : await store.create(ownerId, operation) });
       } catch (error) {
         if (!(error instanceof ExpenseError)) throw error;
         results.push({ mutationId, error: publicError(error) });
@@ -122,7 +134,7 @@ export function createApi({ store, authenticate, loadProfile, cursorSecret, webO
     const query = parsed.data;
     const owner = await store.accountFor(c.get('clerkUserId'));
     const cursor = decodeCursor(cursorSecret, owner ?? '', query);
-    if (!owner) return c.json({ expenses: [], nextCursor: null });
+    if (!owner) return c.json({ expenses: [], nextCursor: null, dateTotals: [] });
 
     const rows = await store.list(owner, query, cursor);
     const items = rows.slice(0, query.limit).map(({ categoryName, categoryIcon, createdAt, ...item }) => ({
@@ -134,7 +146,8 @@ export function createApi({ store, authenticate, loadProfile, cursorSecret, webO
       const payload = Buffer.from(JSON.stringify({ date: last.expenseDate, createdAt: last.createdAt, id: last.id })).toString('base64url');
       nextCursor = payload + '.' + cursorSignature(cursorSecret, owner, query, payload);
     }
-    return c.json({ expenses: items, nextCursor });
+    const dateTotals = await store.totalsForDates(owner, [...new Set(items.map(item => item.expenseDate))], query.categoryId);
+    return c.json({ expenses: items, nextCursor, dateTotals });
   });
 
   app.get('/v1/expenses/monthly-summary', async c => {

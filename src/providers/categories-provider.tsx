@@ -1,13 +1,9 @@
 import { useAuth } from '@clerk/expo';
-import { createContext, useCallback, useContext, useEffect, useState, type PropsWithChildren } from 'react';
+import { useCallback, useContext, useEffect, useState, type PropsWithChildren } from 'react';
 
-import { defaultCategories, type ExpenseCategory, type NewCategory } from '@/domain/expenses';
-import { createCategory, ExpenseApiError, listCategories } from '@/lib/expenses-api';
-
-const CategoriesContext = createContext<{
-  categories: ExpenseCategory[]; loading: boolean; error?: string;
-  reload: () => void; create: (input: NewCategory) => Promise<ExpenseCategory>;
-} | null>(null);
+import { defaultCategories, type ExpenseCategory, type NewCategory, type EditCategory } from '@/domain/expenses';
+import { createCategory, ExpenseApiError, listCategories, updateCategory } from '@/lib/expenses-api';
+import { CategoriesContext } from './categories-context';
 
 export function CategoriesProvider({ children }: PropsWithChildren) {
   const { getToken } = useAuth();
@@ -34,8 +30,14 @@ export function CategoriesProvider({ children }: PropsWithChildren) {
     return category;
   }, [getToken]);
 
+  const update = useCallback(async (input: EditCategory) => {
+    const category = await updateCategory(getToken, input);
+    setCategories(previous => previous.map(item => item.id === category.id ? category : item));
+    return category;
+  }, [getToken]);
+
   return <CategoriesContext.Provider value={{ categories, loading, error,
-    reload: () => { setLoading(true); setError(undefined); setRevision(value => value + 1); }, create }}>{children}</CategoriesContext.Provider>;
+    reload: () => { setLoading(true); setError(undefined); setRevision(value => value + 1); }, create, update }}>{children}</CategoriesContext.Provider>;
 }
 
 export function useCategories() {

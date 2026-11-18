@@ -1,11 +1,12 @@
 import { Platform, Pressable, ScrollView, StyleSheet, View, type ScrollViewInstance, type StyleProp, type ViewStyle } from 'react-native';
 import { useRef } from 'react';
+import { useRouter } from 'expo-router';
 
 import { DashboardIcon } from './dashboard-ui';
 import { CategoryCard } from '@/components/categories/category-card';
 import { ThemedText } from '@/components/themed-text';
 import { Radii, Spacing } from '@/constants/theme';
-import { accountToday, categoryIds, compareMonthlySpend, defaultCategories, formatPaise, groupExpenses, isCategoryIcon,
+import { accountToday, categoryIds, compareMonthlySpend, defaultCategories, formatPaise, groupTransactionsByDate, isCategoryIcon,
   type CategoryId, type ExpenseCategory, type ExpensePeriod } from '@/domain/expenses';
 import { useTheme } from '@/hooks/use-theme';
 import { type HistoryEntry } from '@/lib/expenses-api';
@@ -115,7 +116,11 @@ export function TransactionSkeleton({ count = 2, label = 'Loading recent transac
   return (
     <View accessible accessibilityRole="progressbar" accessibilityLabel={label}
       accessibilityState={{ busy: true }} style={styles.transactionGroup}>
-      <View style={styles.transactionHeadingSkeletonFrame}><SkeletonBlock style={styles.transactionHeadingSkeleton} /></View>
+      <View style={styles.transactionDateHeader}>
+        <SkeletonBlock style={styles.transactionHeadingSkeleton} />
+        <View style={[styles.transactionDateLine, { backgroundColor: colors.border }]} />
+        <SkeletonBlock style={styles.transactionAmountSkeleton} />
+      </View>
       {Array.from({ length: count }, (_, row) => (
         <View key={row} style={[styles.transaction, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
           <SkeletonBlock style={styles.transactionIcon} />
@@ -130,15 +135,29 @@ export function TransactionSkeleton({ count = 2, label = 'Loading recent transac
   );
 }
 
-export function TransactionList({ transactions }: { transactions: readonly HistoryEntry[] }) {
+export function TransactionList({ transactions, dateTotals }: {
+  transactions: readonly HistoryEntry[]; dateTotals?: ReadonlyMap<string, string>;
+}) {
   const { colors } = useTheme();
-  const groups = groupExpenses(transactions, accountToday());
+  const router = useRouter();
+  const groups = groupTransactionsByDate(transactions, accountToday());
   const sections = groups.map(group => (
     <View key={group.key} style={styles.transactionGroup}>
-      <ThemedText accessibilityRole="header" type="smallBold" themeColor="textSecondary">{group.label}</ThemedText>
+      <View style={styles.transactionDateHeader}>
+        <ThemedText accessibilityRole="header" type="smallBold" themeColor="textSecondary">{group.label}</ThemedText>
+        <View style={[styles.transactionDateLine, { backgroundColor: colors.border }]} />
+        <ThemedText type="smallBold" themeColor="textSecondary" style={styles.amount}
+          accessibilityLabel={`${group.label} total ${formatPaise(dateTotals?.get(group.key) ?? group.totalPaise)}`}>
+          {formatPaise(dateTotals?.get(group.key) ?? group.totalPaise)}
+        </ThemedText>
+      </View>
       <View style={styles.transactionCards}>
         {group.expenses.map(transaction => (
-          <View key={transaction.id} style={[styles.transaction, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
+          <Pressable key={transaction.id} accessibilityRole="button"
+            accessibilityLabel={`Edit ${transaction.title ?? transaction.categoryName}, ${formatPaise(transaction.amountPaise)}`}
+            onPress={() => router.push({ pathname: '/transactions/[id]', params: { id: transaction.id } })}
+            style={({ pressed }) => [styles.transaction, { backgroundColor: pressed ? colors.backgroundSelected : colors.backgroundElement,
+              borderColor: colors.border }]}>
             <View style={[styles.transactionIcon, { backgroundColor: colors.accentSoft }]}>
               <DashboardIcon name={transaction.categoryIcon ?? (isCategoryIcon(transaction.categoryId) ? transaction.categoryId : 'other')}
                 color={colors.accent} />
@@ -148,7 +167,7 @@ export function TransactionList({ transactions }: { transactions: readonly Histo
               {transaction.title && <ThemedText type="small" themeColor="textSecondary">{transaction.categoryName}</ThemedText>}
             </View>
             <ThemedText type="smallBold" style={styles.amount}>{formatPaise(transaction.amountPaise)}</ThemedText>
-          </View>
+          </Pressable>
         ))}
       </View>
     </View>
@@ -187,6 +206,8 @@ const styles = StyleSheet.create({
   transactions: { gap: Spacing.three },
   transactionGroup: { gap: Spacing.two },
   transactionCards: { gap: Spacing.two },
+  transactionDateHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three, minHeight: 24 },
+  transactionDateLine: { flex: 1, minWidth: 12, height: 1 },
   transaction: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12,
     borderRadius: Radii.medium, borderWidth: 1 },
   transactionIcon: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },

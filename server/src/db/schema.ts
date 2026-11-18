@@ -39,6 +39,18 @@ export const categories = pgTable('expense_categories', {
     .where(sql`${table.ownerId} is not null`),
 ]);
 
+export const categoryPreferences = pgTable('category_preferences', {
+  ownerId: uuid('owner_id').notNull().references(() => appUsers.id, { onDelete: 'cascade' }),
+  categoryId: text('category_id').$type<CategoryId>().notNull().references(() => categories.id, { onDelete: 'cascade' }),
+  name: text().notNull(),
+  icon: text().$type<CategoryIcon>().notNull(),
+}, table => [
+  primaryKey({ columns: [table.ownerId, table.categoryId] }),
+  check('category_preferences_name_length', sql`char_length(btrim(${table.name})) between 1 and 200`),
+  check('category_preferences_icon', sql`${table.icon} in (${sql.join(categoryIconIds.map(icon => sql.raw(`'${icon}'`)), sql`, `)})`),
+  uniqueIndex('category_preferences_owner_name_idx').on(table.ownerId, sql`lower(btrim(${table.name}))`),
+]);
+
 export const expenses = pgTable('expenses', {
   id: uuid().primaryKey(),
   ownerId: uuid('owner_id').notNull().references(() => appUsers.id, { onDelete: 'cascade' }),

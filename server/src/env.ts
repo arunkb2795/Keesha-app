@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { config } from 'dotenv';
 import { z } from 'zod';
 
-const injectedMigrationUrl = process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
+const injectedMigrationUrl = process.env.DATABASE_URL_UNPOOLED;
 
 config({
   path: ['../.env', '../../.env.local', '../../.env'].map(path => fileURLToPath(new URL(path, import.meta.url))),
